@@ -46,7 +46,8 @@ log_info "Running setup for user: $USER"
 log_info "Home directory: $HOME"
 
 # =====================[ MOUNTING EXTERNAL HOME ]===================== #
-# TODO make sure that I don't override my home everytime (ensure that it happens only if external drive not yet mounted)
+# TODO make sure that I don't override my home everytime
+# (ensure that it happens only if external drive not yet mounted)
 log_info "Configuring 512 GB drive..."
 UUID="688f55cd-90c1-4766-b4f9-5e1a812fe16a"
 if ! grep -q "$UUID" /etc/fstab; then
@@ -131,19 +132,22 @@ log_ok "System packages upgraded."
 
 # =====================[ REMOVE PACKAGES ]===================== #
 # TODO throws an error when no package found
-# log_info "Removing unnecessary applications and dependencies..."
-# sudo pacman -Rs --noconfirm \
-#     $(
-#         pacman -Qq \
-#             htop \
-#             nano \
-#             orca \
-#             >/dev/null
-#     )
-# log_ok "Unnecessary applications removed."
+log_info "Removing unnecessary applications and dependencies..."
+sudo pacman -Rs --noconfirm \
+    htop \
+    nano \
+    orca \
+    gnome-calendar \
+    gnome-weather \
+    gnome-console \
+    gnome-contacts \
+    gnome-tour \
+    >/dev/null
+log_ok "Unnecessary applications removed."
 
 # =====================[ INSTALL PACKAGES ]===================== #
 yay --sync --noconfirm --needed \
+    amd-ucode \
     asciiquarium \
     bat \
     btop \
@@ -182,6 +186,7 @@ yay --sync --noconfirm --needed \
     tldr \
     tmux \
     traceroute \
+    ufw \
     uv \
     wl-clipboard \
     yazi \
@@ -214,7 +219,7 @@ else
 fi
 
 # =====================[ LAZYVIM SETUP ]===================== #
-# TODO do only if NOT .config/nvim/ exists
+# TODO do only if NOT .config/nvim/ exists?
 # git clone https://github.com/LazyVim/start
 # er ~/.config/nvim
 # rm -rf ~/.config/nvim/.git
@@ -225,12 +230,16 @@ fi
 # xdg-settings set default-web-browser app.zen_browser.zen.desktop
 # log_ok "Zen Browser set as default."
 
-# =====================[ ENABLE FIREWALL ]===================== #
-# TODO do I have and need a firewall on archlinux?
-# sudo ufw --force enable
+# =====================[ FIREWALL ]===================== #
+log_info "Configuring firewall"
+sudo systemctl enable --now ufw
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw enable
+log_ok "Firewall configured properly"
 
 # =====================[ FIX LOFREE KEYBOARD ]===================== #
-# TODO I don't use grub anymore, now on systemd somehting. how to configure?
+# TODO I don't use grub anymore, now on systemd-boot. how to configure?
 # log_info "Fixing Lofree keyboard (Function keys)..."
 # sudo modprobe hid_apple
 # if [ -d "/sys/module/hid_apple/parameters" ]; then
@@ -262,12 +271,9 @@ else
 fi
 
 # =====================[ CLEANUP ]===================== #
-# TODO how do I clean up archilnux after such script
-# log_info "Cleaning up..."
-# sudo apt autoremove -y
-# sudo apt autoclean -y
-# sudo apt clean -y
-# log_ok "System cleanup complete."
+log_info "Cleaning up..."
+sudo pacman -Scc
+log_ok "System cleanup complete."
 
 # =====================[ FINISH ]===================== #
 echo ""
