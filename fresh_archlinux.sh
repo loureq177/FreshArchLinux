@@ -1,13 +1,12 @@
 #! /usr/bin/env bash
 set -euo pipefail
-# TODO check if the script is idempotent
+# TODO: check if the script is idempotent
 
 # =====================[ USER CHECK ]===================== #
 if [ "$EUID" -eq 0 ]; then
     echo -e "\033[0;31m[ERROR] Please run as normal user (DO NOT USE SUDO to start script)"
     exit 1
 fi
-
 sudo -v
 while true; do
     sudo -n true
@@ -46,7 +45,7 @@ log_info "Running setup for user: $USER"
 log_info "Home directory: $HOME"
 
 # =====================[ MOUNTING EXTERNAL HOME ]===================== #
-# TODO make sure that I don't override my home everytime
+# TODO: make sure that I don't override my home everytime
 # (ensure that it happens only if external drive not yet mounted)
 log_info "Configuring 512 GB drive..."
 UUID="688f55cd-90c1-4766-b4f9-5e1a812fe16a"
@@ -62,7 +61,7 @@ fi
 log_ok "Home drive ready."
 
 # =========================[ DRIVER UPDATE ]========================= #
-# TODO How do I update drivers on archlinux?
+# TODO: How do I update drivers on archlinux?
 # log_info "Updating drivers..."
 # log_ok "Drivers updated check complete!"
 
@@ -103,6 +102,8 @@ gsettings set org.gnome.desktop.input-sources xkb-options "['caps:escape']"
 gsettings set org.gnome.desktop.interface clock-format '24h'
 gsettings set org.gnome.desktop.peripherals.keyboard delay 200
 gsettings set org.gnome.settings-daemon.plugins.media-keys volume-step 2
+# TODO: add region
+# TODO: add celsius as default
 log_ok "GNOME settings applied."
 
 # =====================[ AUDIO ]===================== #
@@ -110,7 +111,7 @@ log_info "Setting microphone volume..."
 wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 0.3 && log_ok "Microphone set to 30%" || log_warn "Could not set volume"
 
 # =====================[ YAY SETUP ]===================== #
-# TODO only if not yet done
+# TODO: only if not yet done
 # sudo pacman -S --needed git base-devel
 # git clone https://aur.archlinux.org/yay-bin.git
 # cd yay-bin
@@ -121,7 +122,7 @@ wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 0.3 && log_ok "Microphone set to 30%" ||
 # cd
 
 # =====================[ PACMAN CONFIG ]===================== #
-# TODO uncomment if not yet done
+# TODO: uncomment if not yet done
 # pacman.conf uncomment # Colors
 # pacman.conf uncomment # "multilib and below Include (for 32-bit steam)
 
@@ -131,7 +132,7 @@ sudo pacman -Syu
 log_ok "System packages upgraded."
 
 # =====================[ REMOVE PACKAGES ]===================== #
-# TODO throws an error when no package found
+# TODO: throws an error when no package found
 log_info "Removing unnecessary applications and dependencies..."
 sudo pacman -Rs --noconfirm \
     htop \
@@ -142,6 +143,7 @@ sudo pacman -Rs --noconfirm \
     gnome-console \
     gnome-contacts \
     gnome-tour \
+    gnome-system-monitor \
     >/dev/null
 log_ok "Unnecessary applications removed."
 
@@ -169,6 +171,7 @@ yay --sync --noconfirm --needed \
     github-cli \
     git \
     git-lfs \
+    lazygit \
     man-db \
     neovim \
     obsidian \
@@ -186,6 +189,8 @@ yay --sync --noconfirm --needed \
     tldr \
     tmux \
     traceroute \
+    tree-sitter \
+    tree-sitter-cli \
     ufw \
     uv \
     wl-clipboard \
@@ -219,13 +224,15 @@ else
 fi
 
 # =====================[ LAZYVIM SETUP ]===================== #
-# TODO do only if NOT .config/nvim/ exists?
+# TODO:do only if NOT .config/nvim/ exists?
+
 # git clone https://github.com/LazyVim/start
 # er ~/.config/nvim
 # rm -rf ~/.config/nvim/.git
 
 # =====================[ BROWSER & SHELL SETUP ]===================== #
-# TODO no idea how to do this on archlinux
+# TODO: no idea how to do this on archlinux
+
 # log_info "Setting Zen Browser as default..."
 # xdg-settings set default-web-browser app.zen_browser.zen.desktop
 # log_ok "Zen Browser set as default."
@@ -239,7 +246,8 @@ sudo ufw enable
 log_ok "Firewall configured properly"
 
 # =====================[ FIX LOFREE KEYBOARD ]===================== #
-# TODO I don't use grub anymore, now on systemd-boot. how to configure?
+# TODO: I don't use grub anymore, now on systemd-boot. how to configure?
+
 # log_info "Fixing Lofree keyboard (Function keys)..."
 # sudo modprobe hid_apple
 # if [ -d "/sys/module/hid_apple/parameters" ]; then
@@ -252,7 +260,7 @@ log_ok "Firewall configured properly"
 # sudo update-grub
 
 # =====================[ ENABLE STARSHIP PROMPT ]===================== #
-STARSHIP_INIT='eval "$(starship init zsh)"'
+STARSHIP_INIT="eval '$(starship init zsh)'"
 if ! grep -qF "$STARSHIP_INIT" "$HOME/.zshrc"; then
     echo "" >>"$HOME/.zshrc"
     echo "$STARSHIP_INIT" >>"$HOME/.zshrc"
