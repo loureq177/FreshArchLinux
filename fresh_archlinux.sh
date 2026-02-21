@@ -1,6 +1,5 @@
 #! /usr/bin/env bash
 set -euo pipefail
-# TODO: check if the script is idempotent
 
 # =====================[ USER CHECK ]===================== #
 if [ "$EUID" -eq 0 ]; then
@@ -16,7 +15,7 @@ done 2>/dev/null &
 
 # =====================[ COLORS & LOGGING ]===================== #
 RED='\033[0;31m'
-GREEN='\033[0;32m'
+GREEN='\032[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
@@ -45,32 +44,38 @@ log_info "Running setup for user: $USER"
 log_info "Home directory: $HOME"
 
 # =====================[ MOUNTING EXTERNAL HOME ]===================== #
-# TODO: make sure that I don't override my home everytime
-# (ensure that it happens only if external drive not yet mounted)
 log_info "Configuring 512 GB drive..."
 UUID="688f55cd-90c1-4766-b4f9-5e1a812fe16a"
 if ! grep -q "$UUID" /etc/fstab; then
-    sudo sed -i '/[[:space:]]\/home[[:space:]]/d' /etc/fstab
-    echo "UUID=$UUID /home ext4 defaults 0 2" | sudo tee -a /etc/fstab >/dev/null
+    if ! grep -q "^[^#]*[[:space:]]/home[[:space:]]" /etc/fstab; then
+        echo "UUID=$UUID /home ext4 defaults 0 2" | sudo tee -a /etc/fstab >/dev/null
+    fi
 fi
 sudo mount -a
-if [ "$(stat -c '%U' /home/$USER 2>/dev/null)" != "$USER" ]; then
-    sudo chown -R $USER:$USER /home/$USER
-    sudo chmod 700 /home/$USER
+if [ "$(stat -c '%U' /home/"$USER" 2>/dev/null)" != "$USER" ]; then
+    sudo chown -R "$USER":"$USER" /home/"$USER"
+    sudo chmod 700 /home/"$USER"
 fi
 log_ok "Home drive ready."
 
-# =========================[ DRIVER UPDATE ]========================= #
-# TODO: How do I update drivers on archlinux?
-# log_info "Updating drivers..."
-# log_ok "Drivers updated check complete!"
+# =====================[ SYSTEMD-BOOT TIMEOUT ]===================== #
+LOADER_CONF="/boot/loader/loader.conf"
+if [ -f "$LOADER_CONF" ]; then
+    if grep -q "^timeout" "$LOADER_CONF"; then
+        sudo sed -i 's/^timeout.*/timeout 0/' "$LOADER_CONF"
+        log_ok "Updated timeout to 0 in $LOADER_CONF"
+    else
+        echo "timeout 0" >>"$LOADER_CONF"
+        log_ok "Added timeout 0 to $LOADER_CONF"
+    fi
+else
+    log_error "Error: Could not find $LOADER_CONF. Is systemd-boot installed?"
+fi
 
 # =====================[ JETBRAINS MONO NERD FONT ]===================== #
 log_info "Installing JetBrains Mono Nerd Font..."
-
 FONT_URL="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip"
 FONT_DIR="/usr/share/fonts/JetBrainsMonoNerd"
-
 if [ ! -d "$FONT_DIR" ]; then
     sudo mkdir -p "$FONT_DIR"
     curl -fLo /tmp/JetBrainsMono.zip "$FONT_URL" &&
@@ -84,26 +89,24 @@ fi
 
 # =====================[ GNOME CONFIGURATION ]===================== #
 log_info "Configuring GNOME environment..."
-log_info "Applying GNOME preferences..."
 gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark' || log_warn "GTK theme failed"
 gsettings set org.gnome.desktop.interface icon-theme "Adwaita"
 gsettings set org.gnome.desktop.interface accent-color "blue"
 gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' || log_warn "Color scheme failed"
 gsettings set org.gnome.desktop.interface font-name 'Adwaita Sans 12'
 gsettings set org.gnome.desktop.interface document-font-name 'Adwaita Sans 12'
+gsettings set org.gnome.desktop.interface show-battery-percentage true
+gsettings set org.gnome.desktop.interface text-scaling-factor 1
 gsettings set org.gnome.desktop.interface monospace-font-name 'JetBrainsMono Nerd Font Mono 12' &&
     log_ok "Default monospace font set to JetBrainsMono Nerd Font Mono." ||
     log_warn "Failed to set JetBrains Mono Nerd Font as default."
-gsettings set org.gnome.desktop.interface text-scaling-factor 1
 gsettings set org.gnome.desktop.wm.preferences button-layout 'appmenu:minimize,maximize,close'
-gsettings set org.gnome.desktop.interface show-battery-percentage true
 gsettings set org.gnome.desktop.wm.preferences auto-raise true
 gsettings set org.gnome.desktop.input-sources xkb-options "['caps:escape']"
 gsettings set org.gnome.desktop.interface clock-format '24h'
 gsettings set org.gnome.desktop.peripherals.keyboard delay 200
 gsettings set org.gnome.settings-daemon.plugins.media-keys volume-step 2
-# TODO: add region
-# TODO: add celsius as default
+gsettings set org.gnome.system.locale region "pl_PL.UTF-8"
 log_ok "GNOME settings applied."
 
 # =====================[ AUDIO ]===================== #
@@ -111,15 +114,20 @@ log_info "Setting microphone volume..."
 wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 0.3 && log_ok "Microphone set to 30%" || log_warn "Could not set volume"
 
 # =====================[ YAY SETUP ]===================== #
-# TODO: only if not yet done
-# sudo pacman -S --needed git base-devel
-# git clone https://aur.archlinux.org/yay-bin.git
-# cd yay-bin
-# makepkg -si
-# yay -Syu --devel
-# yay -Y --devel --save
-# rm -rf yay-bin
-# cd
+if ! command -v yay &>/dev/null; then
+    sudo pacman -S --needed git base-devel
+    cd /tmp
+    git clone https://aur.archlinux.org/yay-bin.git
+    cd yay-bin
+    makepkg -si --noconfirm
+    yay -Syu --devel
+    yay -Y --devel --save
+    cd /
+    rm -rf /tmp/yay-bin
+    log_ok "yay installed."
+else
+    log_info "yay already installed - skipping."
+fi
 
 # =====================[ PACMAN CONFIG ]===================== #
 # TODO: uncomment if not yet done
@@ -128,23 +136,16 @@ wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 0.3 && log_ok "Microphone set to 30%" ||
 
 # =====================[ UPDATE ]===================== #
 log_info "Upgrading system packages..."
-sudo pacman -Syu
+sudo pacman -Syu --noconfirm
 log_ok "System packages upgraded."
 
 # =====================[ REMOVE PACKAGES ]===================== #
-# TODO: throws an error when no package found
 log_info "Removing unnecessary applications and dependencies..."
-sudo pacman -Rs --noconfirm \
-    htop \
-    nano \
-    orca \
-    gnome-calendar \
-    gnome-weather \
-    gnome-console \
-    gnome-contacts \
-    gnome-tour \
-    gnome-system-monitor \
-    >/dev/null
+for pkg in epiphany gnome-calendar gnome-weather gnome-console gnome-contacts gnome-tour gnome-system-monitor gnome-software htop nano orca; do
+    if pacman -Qs "^${pkg}$" &>/dev/null; then
+        sudo pacman -Rs --noconfirm "$pkg" 2>/dev/null || true
+    fi
+done
 log_ok "Unnecessary applications removed."
 
 # =====================[ INSTALL PACKAGES ]===================== #
@@ -169,7 +170,6 @@ yay --sync --noconfirm --needed \
     gnome-shell-extensions \
     gnome-tweaks \
     github-cli \
-    git \
     git-lfs \
     lazygit \
     man-db \
@@ -224,18 +224,23 @@ else
 fi
 
 # =====================[ LAZYVIM SETUP ]===================== #
-# TODO:do only if NOT .config/nvim/ exists?
-
-# git clone https://github.com/LazyVim/start
-# er ~/.config/nvim
-# rm -rf ~/.config/nvim/.git
+log_info "Setting up LazyVim..."
+if [ ! -d "$HOME/.config/nvim" ]; then
+    git clone https://github.com/LazyVim/starter ~/.config/nvim
+    rm -rf ~/.config/nvim/.git
+    log_ok "LazyVim installed."
+else
+    log_info "LazyVim already exists — skipping."
+fi
 
 # =====================[ BROWSER & SHELL SETUP ]===================== #
-# TODO: no idea how to do this on archlinux
-
-# log_info "Setting Zen Browser as default..."
-# xdg-settings set default-web-browser app.zen_browser.zen.desktop
-# log_ok "Zen Browser set as default."
+log_info "Setting Zen Browser as default..."
+if command -v zen &>/dev/null || command -v zen-browser &>/dev/null; then
+    xdg-settings set default-web-browser app.zen_browser.zen.desktop 2>/dev/null || log_warn "Could not set Zen Browser as default"
+    log_ok "Zen Browser set as default."
+else
+    log_warn "Zen Browser not installed — skipping."
+fi
 
 # =====================[ FIREWALL ]===================== #
 log_info "Configuring firewall"
@@ -246,18 +251,27 @@ sudo ufw enable
 log_ok "Firewall configured properly"
 
 # =====================[ FIX LOFREE KEYBOARD ]===================== #
-# TODO: I don't use grub anymore, now on systemd-boot. how to configure?
+log_info "Fixing Lofree keyboard (Function keys)..."
+if [ -d "/sys/module/hid_apple" ]; then
+    echo 2 | sudo tee /sys/module/hid_apple/parameters/fnmode >/dev/null
+    log_ok "hid_apple fnmode set to 2 (runtime)"
+else
+    log_warn "hid_apple module not loaded. Is the keyboard connected?"
+fi
 
-# log_info "Fixing Lofree keyboard (Function keys)..."
-# sudo modprobe hid_apple
-# if [ -d "/sys/module/hid_apple/parameters" ]; then
-#   echo 2 | sudo tee /sys/module/hid_apple/parameters/fnmode >/dev/null
-#   log_ok "hid_apple module configured."
-# else
-#   log_warn "hid_apple module not found. Is the keyboard connected?"
-# fi
-# sudo sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="/GRUB_CMDLINE_LINUX_DEFAULT="hid_apple.fnmode=2 /' /etc/default/grub
-# sudo update-grub
+if ! grep -q "hid_apple.fnmode=2" /boot/loader/entries/*.conf 2>/dev/null; then
+    CONF_FILE=$(find -1 /boot/loader/entries/*.conf 2>/dev/null | head -1)
+    if [ -n "$CONF_FILE" ]; then
+        if ! grep -q "hid_apple.fnmode=2" "$CONF_FILE"; then
+            sudo sed -i 's/options /options hid_apple.fnmode=2 /' "$CONF_FILE"
+            log_ok "Added hid_apple.fnmode=2 to $CONF_FILE"
+        fi
+    else
+        log_warn "Could not find systemd-boot entries in /boot/loader/entries/"
+    fi
+else
+    log_info "hid_apple.fnmode=2 already configured in boot entries."
+fi
 
 # =====================[ ENABLE STARSHIP PROMPT ]===================== #
 STARSHIP_INIT="eval '$(starship init zsh)'"
