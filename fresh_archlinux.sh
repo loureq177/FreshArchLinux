@@ -130,9 +130,9 @@ else
 fi
 
 # =====================[ PACMAN CONFIG ]===================== #
-# TODO: uncomment if not yet done
-# pacman.conf uncomment # Colors
-# pacman.conf uncomment # "multilib and below Include (for 32-bit steam)
+sudo sed -i 's/^#Color$/Color/' /etc/pacman.conf
+sudo sed -i 's/^#\[multilib\]$/[multilib]/' /etc/pacman.conf
+sudo sed -i 's/^#Include = \/etc\/pacman.d\/mirrorlist/Include = \/etc\/pacman.d\/mirrorlist/' /etc/pacman.conf
 
 # =====================[ UPDATE ]===================== #
 log_info "Upgrading system packages..."
@@ -211,12 +211,12 @@ if [[ -n "$CURRENT_NAME" ]] && [[ -n "$CURRENT_EMAIL" ]]; then
     log_info "Git is already configured as: $CURRENT_NAME <$CURRENT_EMAIL> — skipping setup."
 else
     if [[ -z "$CURRENT_NAME" ]]; then
-        read -p "Enter your nick for git config --global user.name: " username
+        read -pr "Enter your nick for git config --global user.name: " username
         git config --global user.name "$username"
     fi
 
     if [[ -z "$CURRENT_EMAIL" ]]; then
-        read -p "Enter your email for git config --global user.email: " email
+        read -pr "Enter your email for git config --global user.email: " email
         git config --global user.email "$email"
     fi
 
