@@ -72,21 +72,6 @@ else
     log_error "Error: Could not find $LOADER_CONF. Is systemd-boot installed?"
 fi
 
-# =====================[ JETBRAINS MONO NERD FONT ]===================== #
-log_info "Installing JetBrains Mono Nerd Font..."
-FONT_URL="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip"
-FONT_DIR="/usr/share/fonts/JetBrainsMonoNerd"
-if [ ! -d "$FONT_DIR" ]; then
-    sudo mkdir -p "$FONT_DIR"
-    curl -fLo /tmp/JetBrainsMono.zip "$FONT_URL" &&
-        sudo unzip -qo /tmp/JetBrainsMono.zip -d "$FONT_DIR" &&
-        sudo fc-cache -f -v &&
-        log_ok "JetBrains Mono Nerd Font installed." ||
-        log_warn "Failed to install JetBrains Mono Nerd Font."
-else
-    log_info "JetBrains Mono Nerd Font already installed — skipping."
-fi
-
 # =====================[ GNOME CONFIGURATION ]===================== #
 log_info "Configuring GNOME environment..."
 gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark' || log_warn "GTK theme failed"
@@ -115,7 +100,7 @@ wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 0.3 && log_ok "Microphone set to 30%" ||
 
 # =====================[ YAY SETUP ]===================== #
 if ! command -v yay &>/dev/null; then
-    sudo pacman -S --needed git base-devel
+    sudo pacman -Syu --needed git base-devel
     cd /tmp
     git clone https://aur.archlinux.org/yay-bin.git
     cd yay-bin
@@ -149,7 +134,7 @@ done
 log_ok "Unnecessary applications removed."
 
 # =====================[ INSTALL PACKAGES ]===================== #
-yay --sync --noconfirm --needed \
+yay -Syu --noconfirm --needed \
     amd-ucode \
     asciiquarium \
     bat \
@@ -185,12 +170,14 @@ yay --sync --noconfirm --needed \
     ripgrep \
     sox \
     stacer \
+    starship \
     stow \
     tldr \
     tmux \
     traceroute \
     tree-sitter \
     tree-sitter-cli \
+    ttf-jetbrains-mono-nerd \
     ufw \
     uv \
     wl-clipboard \
@@ -260,7 +247,7 @@ else
 fi
 
 if ! grep -q "hid_apple.fnmode=2" /boot/loader/entries/*.conf 2>/dev/null; then
-    CONF_FILE=$(find -1 /boot/loader/entries/*.conf 2>/dev/null | head -1)
+    CONF_FILE=$(ls -1 /boot/loader/entries/*.conf 2>/dev/null | head -1)
     if [ -n "$CONF_FILE" ]; then
         if ! grep -q "hid_apple.fnmode=2" "$CONF_FILE"; then
             sudo sed -i 's/options /options hid_apple.fnmode=2 /' "$CONF_FILE"
@@ -294,7 +281,7 @@ fi
 
 # =====================[ CLEANUP ]===================== #
 log_info "Cleaning up..."
-sudo pacman -Scc
+sudo pacman -Scc --noconfirm
 log_ok "System cleanup complete."
 
 # =====================[ FINISH ]===================== #
