@@ -161,6 +161,7 @@ yay -Syu --noconfirm --needed \
     neovim \
     obsidian \
     ollama \
+    opencode \
     pinta \
     prusa-slicer \
     python-pip \
