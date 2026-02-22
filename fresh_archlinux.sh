@@ -170,6 +170,7 @@ yay -Syu --noconfirm --needed \
     rclone \
     rclone-browser \
     ripgrep \
+    ruff \
     sox \
     stacer \
     starship \
@@ -194,26 +195,11 @@ log_ok "Essential applications installed."
 # =====================[ REMOVE ORPHANS ]=================== #
 yay --remove --nosave --recursive dotnet-sdk
 
-# =====================[ GIT SETUP ]=================== #
-log_info "Setting up git..."
-git config --global init.defaultBranch main
-CURRENT_NAME=$(git config --global --get user.name || true)
-CURRENT_EMAIL=$(git config --global --get user.email || true)
-if [[ -n "$CURRENT_NAME" ]] && [[ -n "$CURRENT_EMAIL" ]]; then
-    log_info "Git is already configured as: $CURRENT_NAME <$CURRENT_EMAIL> — skipping setup."
-else
-    if [[ -z "$CURRENT_NAME" ]]; then
-        read -pr "Enter your nick for git config --global user.name: " username
-        git config --global user.name "$username"
-    fi
-
-    if [[ -z "$CURRENT_EMAIL" ]]; then
-        read -pr "Enter your email for git config --global user.email: " email
-        git config --global user.email "$email"
-    fi
-
-    log_ok "Git has been correctly set up."
-fi
+# =====================[ FIX BRIGHTNESS ]=================== #
+sed -i -E '/^options/ {
+  s/ *(acpi_backlight|nvidia\.NVreg_PreserveVideoMemoryAllocations)=[^ ]*//g
+  s/$/ acpi_backlight=nvidia_wmi_ec nvidia.NVreg_PreserveVideoMemoryAllocations=1/
+}' /boot/loader/entries/*.conf
 
 # =====================[ LAZYVIM SETUP ]===================== #
 log_info "Setting up LazyVim..."
