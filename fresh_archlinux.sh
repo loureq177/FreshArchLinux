@@ -158,6 +158,7 @@ yay -Syu --noconfirm --needed \
     github-cli \
     git-lfs \
     lazygit \
+    localsend \
     man-db \
     neovim \
     obsidian \
@@ -183,6 +184,7 @@ yay -Syu --noconfirm --needed \
     ttf-jetbrains-mono-nerd \
     ufw \
     uv \
+    valent \
     wl-clipboard \
     yazi \
     zen-browser-bin \
@@ -222,10 +224,14 @@ fi
 
 # =====================[ FIREWALL ]===================== #
 log_info "Configuring firewall"
-sudo systemctl enable --now ufw
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
-sudo ufw enable
+sudo ufw allow 1714:1764/tcp comment 'KDE Connect / Valent TCP'
+sudo ufw allow 1714:1764/udp comment 'KDE Connect / Valent UDP'
+sudo ufw allow 53317/tcp comment 'LocalSend TCP'
+sudo ufw allow 53317/udp comment 'LocalSend UDP'
+sudo ufw --force enable
+sudo systemctl enable --now ufw
 log_ok "Firewall configured properly"
 
 # =====================[ FIX LOFREE KEYBOARD ]===================== #
@@ -236,7 +242,6 @@ if [ -d "/sys/module/hid_apple" ]; then
 else
     log_warn "hid_apple module not loaded. Is the keyboard connected?"
 fi
-
 if ! grep -q "hid_apple.fnmode=2" /boot/loader/entries/*.conf 2>/dev/null; then
     CONF_FILE=$(ls -1 /boot/loader/entries/*.conf 2>/dev/null | head -1)
     if [ -n "$CONF_FILE" ]; then
@@ -259,6 +264,13 @@ if [ "$SHELL" != "$(which zsh)" ]; then
 else
     log_info "ZSH is already your default shell."
 fi
+
+# =====================[ DOTFILES SETUP ]===================== #
+log_info "Downloading and linking dotfiles..."
+git clone https://github.com/TwojNick/dotfiles.git ~/.files
+cd ~/.files
+stow */
+log_ok "Dotfiles installed."
 
 # =====================[ CLEANUP ]===================== #
 log_info "Cleaning up..."
