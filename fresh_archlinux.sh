@@ -251,16 +251,6 @@ else
     log_info "hid_apple.fnmode=2 already configured in boot entries."
 fi
 
-# =====================[ ENABLE STARSHIP PROMPT ]===================== #
-STARSHIP_INIT="eval '$(starship init zsh)'"
-if ! grep -qF "$STARSHIP_INIT" "$HOME/.zshrc"; then
-    echo "" >>"$HOME/.zshrc"
-    echo "$STARSHIP_INIT" >>"$HOME/.zshrc"
-    log_ok "Added Starship init to .zshrc"
-else
-    log_info "Starship already configured in .zshrc — skipping."
-fi
-
 # =====================[ SET ZSH AS DEFAULT ]===================== #
 log_info "Setting ZSH as default shell..."
 if [ "$SHELL" != "$(which zsh)" ]; then
