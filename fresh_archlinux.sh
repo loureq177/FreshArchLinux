@@ -115,9 +115,10 @@ else
 fi
 
 # =====================[ PACMAN CONFIG ]===================== #
+log_info "Configuring pacman.conf..."
 sudo sed -i 's/^#Color$/Color/' /etc/pacman.conf
-sudo sed -i 's/^#\[multilib\]$/[multilib]/' /etc/pacman.conf
-sudo sed -i 's/^#Include = \/etc\/pacman.d\/mirrorlist/Include = \/etc\/pacman.d\/mirrorlist/' /etc/pacman.conf
+sudo sed -i '/^#\[multilib\]/,/^#Include = .*mirrorlist/ s/^#//' /etc/pacman.conf
+log_ok "Pacman configured (Color, multilib)."
 
 # =====================[ UPDATE ]===================== #
 log_info "Upgrading system packages..."
@@ -126,7 +127,7 @@ log_ok "System packages upgraded."
 
 # =====================[ REMOVE PACKAGES ]===================== #
 log_info "Removing unnecessary applications and dependencies..."
-for pkg in epiphany gnome-calendar gnome-weather gnome-console gnome-contacts gnome-tour gnome-system-monitor gnome-software htop nano orca; do
+for pkg in epiphany gnome-calendar gnome-weather gnome-console gnome-contacts gnome-maps gnome-tour gnome-shell-extensions gnome-system-monitor gnome-software htop nano orca; do
     if pacman -Qs "^${pkg}$" &>/dev/null; then
         sudo pacman -Rs --noconfirm "$pkg" 2>/dev/null || true
     fi
@@ -189,6 +190,9 @@ yay -Syu --noconfirm --needed \
     zsh-autosuggestions \
     zsh-syntax-highlighting || true
 log_ok "Essential applications installed."
+
+# =====================[ REMOVE ORPHANS ]=================== #
+yay --remove --nosave --recursive dotnet-sdk
 
 # =====================[ GIT SETUP ]=================== #
 log_info "Setting up git..."
