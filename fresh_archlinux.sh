@@ -127,7 +127,7 @@ log_ok "System packages upgraded."
 
 # =====================[ REMOVE PACKAGES ]===================== #
 log_info "Removing unnecessary applications and dependencies..."
-for pkg in epiphany gnome-calendar gnome-weather gnome-console gnome-contacts gnome-maps gnome-tour gnome-shell-extensions gnome-system-monitor gnome-software htop nano orca; do
+for pkg in epiphany gnome-calendar gnome-weather gnome-console gnome-contacts gnome-connections gnome-maps gnome-tour gnome-shell-extensions gnome-system-monitor gnome-software htop nano orca; do
     if pacman -Qs "^${pkg}$" &>/dev/null; then
         sudo pacman -Rs --noconfirm "$pkg" 2>/dev/null || true
     fi
@@ -195,7 +195,7 @@ yay -Syu --noconfirm --needed \
 log_ok "Essential applications installed."
 
 # =====================[ REMOVE ORPHANS ]=================== #
-yay --remove --nosave --recursive dotnet-sdk
+yay -R --noconfirm "$(pacman -Qdtq)"
 
 # =====================[ FIX BRIGHTNESS ]=================== #
 sed -i -E '/^options/ {
