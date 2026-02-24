@@ -15,12 +15,13 @@ done 2>/dev/null &
 
 # =====================[ COLORS & LOGGING ]===================== #
 RED='\033[0;31m'
-GREEN='\032[0;32m'
+GREEN='\033[0;32m' # <-- Tutaj była literówka (\032 zamiast \033)
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 LOG_FILE="/tmp/arch-setup.log"
+
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 log_info() {
@@ -126,13 +127,31 @@ sudo pacman -Syu --noconfirm
 log_ok "System packages upgraded."
 
 # =====================[ REMOVE PACKAGES ]===================== #
-log_info "Removing unnecessary applications and dependencies..."
-for pkg in epiphany gnome-calendar gnome-weather gnome-console gnome-contacts gnome-connections gnome-maps gnome-tour gnome-shell-extensions gnome-system-monitor gnome-software htop nano orca; do
+log_info "Removing unnecessary packages..."
+
+UNWANTED_PKGS=(
+    epiphany
+    gnome-calendar
+    gnome-weather
+    gnome-console
+    gnome-contacts
+    gnome-connections
+    gnome-maps
+    gnome-tour
+    gnome-system-monitor
+    gnome-software
+    htop
+    nano
+    orca
+)
+
+for pkg in "${UNWANTED_PKGS[@]}"; do
     if pacman -Qs "^${pkg}$" &>/dev/null; then
         sudo pacman -Rs --noconfirm "$pkg" 2>/dev/null || true
     fi
 done
-log_ok "Unnecessary applications removed."
+
+log_ok "Unnecessary packages removed."
 
 # =====================[ INSTALL PACKAGES ]===================== #
 yay -Syu --noconfirm --needed \
@@ -153,7 +172,6 @@ yay -Syu --noconfirm --needed \
     flatpak \
     fzf \
     gcc \
-    gnome-shell-extensions \
     gnome-tweaks \
     github-cli \
     git-lfs \
@@ -195,10 +213,18 @@ yay -Syu --noconfirm --needed \
 log_ok "Essential applications installed."
 
 # =====================[ REMOVE ORPHANS ]=================== #
-yay -R --noconfirm "$(pacman -Qdtq)"
+log_info "Removing orphan packages..."
+ORPHANS=$(pacman -Qdtq || true)
 
+if [ -n "$ORPHANS" ]; then
+    # Ważne: zmienna $ORPHANS jest tutaj CELOWO bez cudzysłowów!
+    yay -Rns --noconfirm $ORPHANS
+    log_ok "Orphans removed."
+else
+    log_info "No orphan packages to remove."
+fi
 # =====================[ FIX BRIGHTNESS ]=================== #
-sed -i -E '/^options/ {
+sudo sed -i -E '/^options/ {
   s/ *(acpi_backlight|nvidia\.NVreg_PreserveVideoMemoryAllocations)=[^ ]*//g
   s/$/ acpi_backlight=nvidia_wmi_ec nvidia.NVreg_PreserveVideoMemoryAllocations=1/
 }' /boot/loader/entries/*.conf
@@ -256,20 +282,28 @@ else
     log_info "hid_apple.fnmode=2 already configured in boot entries."
 fi
 
-# =====================[ SET ZSH AS DEFAULT ]===================== #
-log_info "Setting ZSH as default shell..."
-if [ "$SHELL" != "$(which zsh)" ]; then
-    sudo chsh -s "$(which zsh)" "$USER"
-    log_ok "Shell changed to ZSH. It will take effect after logout/login."
+# =====================[ BROWSER & SHELL SETUP ]===================== #
+log_info "Setting Zen Browser as default..."
+if command -v zen &>/dev/null || command -v zen-browser &>/dev/null; then
+    if xdg-settings set default-web-browser app.zen_browser.zen.desktop 2>/dev/null; then
+        log_ok "Zen Browser set as default."
+    else
+        log_warn "Could not set Zen Browser as default. (Desktop file might be named differently)"
+    fi
 else
-    log_info "ZSH is already your default shell."
+    log_warn "Zen Browser not installed — skipping."
 fi
-
 # =====================[ DOTFILES SETUP ]===================== #
 log_info "Downloading and linking dotfiles..."
-git clone https://github.com/TwojNick/dotfiles.git ~/.files
+if [ ! -d "$HOME/.files" ]; then
+    git clone https://github.com/TwojNick/dotfiles.git ~/.files
+else
+    log_info "Dotfiles directory already exists. Pulling latest changes..."
+    git -C ~/.files pull || log_warn "Failed to pull latest dotfiles updates."
+fi
+
 cd ~/.files
-stow */
+stow */ || log_warn "Stow encountered an issue (maybe conflicts?)"
 log_ok "Dotfiles installed."
 
 # =====================[ CLEANUP ]===================== #
