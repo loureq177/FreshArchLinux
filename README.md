@@ -1,4 +1,4 @@
-# FreshArch
+# FreshArchLinux
 
 A Bash script to set up a fresh ArchLinux environment with essential applications and configurations.
 

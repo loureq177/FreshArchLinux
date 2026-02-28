@@ -1,0 +1,5 @@
+UUID="688f55cd-90c1-4766-b4f9-5e1a812fe16a"
+LOG_FILE="/tmp/arch-setup.log"
+LOADER_CONF="/boot/loader/loader.conf"
+BOOT_TIMEOUT=0
+MICROPHONE_VOLUME=0.3

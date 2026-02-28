@@ -1,0 +1,13 @@
+epiphany
+gnome-calendar
+gnome-weather
+gnome-console
+gnome-contacts
+gnome-connections
+gnome-maps
+gnome-tour
+gnome-system-monitor
+gnome-software
+htop
+nano
+orca
