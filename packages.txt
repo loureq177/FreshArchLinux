@@ -20,10 +20,8 @@ git-delta
 github-cli
 git-lfs
 lazygit
-localsend
 man-db
 neovim
-obsidian
 ollama
 opencode
 pinta
@@ -46,7 +44,6 @@ tree-sitter-cli
 ttf-jetbrains-mono-nerd
 ufw
 uv
-valent
 visual-studio-code-bin
 wl-clipboard
 yazi
