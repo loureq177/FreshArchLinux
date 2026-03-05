@@ -7,7 +7,6 @@ cbonsai
 cmatrix
 discord
 docker
-envycontrol
 extension-manager
 eza
 fastfetch

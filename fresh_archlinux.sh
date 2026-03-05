@@ -20,10 +20,10 @@ main() {
     setup_yay
     remove_unwanted_packages
     install_packages
+    fix_brightness_nvidia
     lazyvim_setup
     setup_firewall
     fix_keyboard_lofree
-    set_igpu_only
     setup_browser
     setup_dotfiles
     configure_gnome
@@ -175,6 +175,33 @@ install_packages() {
     fi
 }
 
+fix_brightness_nvidia() {
+    log_info "Configuring Nvidia Early KMS and boot parameters..."
+
+    sudo sed -i 's/^MODULES=.*/MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)/' /etc/mkinitcpio.conf
+    log_ok "Added Nvidia modules to /etc/mkinitcpio.conf"
+
+    local conf_file
+    conf_file=$(ls -1 /boot/loader/entries/*.conf 2>/dev/null | head -1)
+
+    if [ -n "$conf_file" ]; then
+        sudo sed -i -E '/^options/ {
+            s/ *(acpi_backlight|nvidia\.NVreg_PreserveVideoMemoryAllocations|nvidia-drm\.modeset|nvidia-drm\.fbdev)=[^ ]*//g
+            s/$/ acpi_backlight=nvidia_wmi_ec nvidia.NVreg_PreserveVideoMemoryAllocations=1 nvidia-drm.modeset=1 nvidia-drm.fbdev=1/
+        }' "$conf_file"
+        log_ok "Nvidia boot parameters added to $conf_file"
+    else
+        log_warn "Could not find systemd-boot entries in /boot/loader/entries/"
+    fi
+
+    log_info "Rebuilding initramfs (this might take a moment)..."
+    if sudo mkinitcpio -P >/dev/null; then
+        log_ok "Initramfs rebuilt successfully."
+    else
+        log_error "Failed to rebuild initramfs!"
+    fi
+}
+
 lazyvim_setup() {
     log_info "Setting up LazyVim..."
     if [ ! -d "$HOME/.config/nvim" ]; then
@@ -220,10 +247,6 @@ fix_keyboard_lofree() {
     else
         log_info "hid_apple.fnmode=2 already configured in boot entries."
     fi
-}
-
-set_igpu_only() {
-    sudo envycontrol --switch integrated
 }
 
 setup_browser() {
