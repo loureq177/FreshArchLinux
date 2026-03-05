@@ -46,11 +46,11 @@ check_user() {
 
 welcome_message() {
     clear
-    printf "\033[38;2;94;189;230m%s\033[0m\n" "      ______               __       ___              __    ___                 "
-    printf "\033[38;2;23;147;209m%s\033[0m\n" "     / ____/_______  _____/ /_     /   |  __________/ /_  / (_)___  __  ___  __"
-    printf "\033[38;2;18;122;173m%s\033[0m\n" "    / /_  / ___/ _ \/ ___/ __ \   / /| | / ___/ ___/ __ \/ / / __ \/ / / / |/_/"
-    printf "\033[38;2;14;95;135m%s\033[0m\n" "   / __/ / /  /  __(__  ) / / /  / ___ |/ /  / /__/ / / / / / / / / /_/ />  <  "
-    printf "\033[38;2;9;66;94m%s\033[0m\n" "  /_/   /_/   \___/____/_/ /_/  /_/  |_/_/   \___/_/ /_/_/_/_/ /_/\__,_/_/|_|  "
+    printf "\033[38;2;94;189;230m%s\033[0m\n" "    ____               __       ___             __    __    _                  "
+    printf "\033[38;2;23;147;209m%s\033[0m\n" "   / __/_______  _____/ /_     /   |  ________/ /_  / /   (_)___  __  ___  __"
+    printf "\033[38;2;18;122;173m%s\033[0m\n" "  / /_/ ___/ _ \/ ___/ __ \   / /| | / ___/ ___/ __ \/ /   / / __ \/ / / / |/_/"
+    printf "\033[38;2;14;95;135m%s\033[0m\n" " / __/ /  /  __(__  ) / / /  / ___ |/ /  / /__/ / / / /___/ / / / / /_/ />  <  "
+    printf "\033[38;2;9;66;94m%s\033[0m\n" "/_/ /_/   \___/____/_/ /_/  /_/  |_/_/   \___/_/ /_/_____/_/_/ /_/\__,_/_/|_|  "
 
     echo -e "\nUser: ${YELLOW}$USER${NC}\n"
     echo -e "${BLUE}=== ACTION PLAN ===${NC}"
@@ -67,13 +67,6 @@ welcome_message() {
     echo "11. Clean up & remove orphans"
     echo -e "${BLUE}===================${NC}\n"
 
-    echo -e "${BLUE}=== LOADED CONFIGURATION ===${NC}"
-    echo -e " LOG_FILE:          ${GREEN}$LOG_FILE${NC}"
-    echo -e " UUID (Home Drive): ${GREEN}$UUID${NC}"
-    echo -e " LOADER_CONF:       ${GREEN}$LOADER_CONF${NC}"
-    echo -e " BOOT_TIMEOUT:      ${GREEN}$BOOT_TIMEOUT${NC}"
-    echo -e " MICROPHONE_VOLUME: ${GREEN}$MICROPHONE_VOLUME${NC}"
-    echo -e "${BLUE}============================${NC}\n"
     echo -e "${RED}Press ENTER to start the setup, or Ctrl+C to abort...${NC}"
     read -r
     echo -e "\n${GREEN}Here we go! Buckle up...${NC}\n"
