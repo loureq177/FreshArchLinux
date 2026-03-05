@@ -1,10 +1,13 @@
 amd-ucode
 asciiquarium
+aws-cli-v2
 bat
+battop
 btop
 ca-certificates
 cbonsai
 cmatrix
+czkawka
 discord
 docker
 extension-manager
