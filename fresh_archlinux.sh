@@ -27,6 +27,8 @@ main() {
     setup_browser
     setup_dotfiles
     configure_gnome
+    setup_ssh
+    setup_automatic_timezone
     cleanup
     finished_message
 }
@@ -267,6 +269,14 @@ setup_dotfiles() {
     cd ~/.files
     stow */ || log_warn "Stow encountered an issue (maybe conflicts?)"
     log_ok "Dotfiles installed."
+}
+
+setup_ssh() {
+    sudo systemctl enable --now sshd
+}
+
+setup_automatic_timezone() {
+    sudo systemctl enable --now geoclue
 }
 
 configure_gnome() {

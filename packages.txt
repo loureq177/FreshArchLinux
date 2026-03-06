@@ -22,6 +22,7 @@ git
 git-delta
 github-cli
 git-lfs
+jq
 lazygit
 man-db
 neovim
