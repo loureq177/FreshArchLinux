@@ -1,4 +1,5 @@
 #! /usr/bin/env bash
+
 set -euo pipefail
 source config
 
@@ -22,13 +23,11 @@ main() {
     install_packages
     fix_brightness_nvidia
     lazyvim_setup
-    setup_firewall
     fix_keyboard_lofree
     setup_browser
     setup_dotfiles
     configure_gnome
-    setup_ssh
-    setup_automatic_timezone
+    enable_daemons
     cleanup
     finished_message
 }
@@ -46,13 +45,19 @@ check_user() {
     done 2>/dev/null &
 }
 
+LINE_1="    ____               __       ___             __    __    _                  "
+LINE_2="   / __/_______  _____/ /_     /   |  ________/ /_  / /   (_)___  __  ___  __"
+LINE_3="  / /_/ ___/ _ \/ ___/ __ \   / /| | / ___/ ___/ __ \/ /   / / __ \/ / / / |/_/"
+LINE_4=" / __/ /  /  __(__  ) / / /  / ___ |/ /  / /__/ / / / /___/ / / / / /_/ />  <  "
+LINE_5="/_/ /_/   \___/____/_/ /_/  /_/  |_/_/   \___/_/ /_/_____/_/_/ /_/\__,_/_/|_|  "
+
 welcome_message() {
     clear
-    printf "\033[38;2;94;189;230m%s\033[0m\n" "    ____               __       ___             __    __    _                  "
-    printf "\033[38;2;23;147;209m%s\033[0m\n" "   / __/_______  _____/ /_     /   |  ________/ /_  / /   (_)___  __  ___  __"
-    printf "\033[38;2;18;122;173m%s\033[0m\n" "  / /_/ ___/ _ \/ ___/ __ \   / /| | / ___/ ___/ __ \/ /   / / __ \/ / / / |/_/"
-    printf "\033[38;2;14;95;135m%s\033[0m\n" " / __/ /  /  __(__  ) / / /  / ___ |/ /  / /__/ / / / /___/ / / / / /_/ />  <  "
-    printf "\033[38;2;9;66;94m%s\033[0m\n" "/_/ /_/   \___/____/_/ /_/  /_/  |_/_/   \___/_/ /_/_____/_/_/ /_/\__,_/_/|_|  "
+    printf "\033[38;2;94;189;230m%s\033[0m\n" "$LINE_1"
+    printf "\033[38;2;23;147;209m%s\033[0m\n" "$LINE_2"
+    printf "\033[38;2;18;122;173m%s\033[0m\n" "$LINE_3"
+    printf "\033[38;2;14;95;135m%s\033[0m\n" "$LINE_4"
+    printf "\033[38;2;9;66;94m%s\033[0m\n" "$LINE_5"
 
     echo -e "\nUser: ${YELLOW}$USER${NC}\n"
     echo -e "${BLUE}=== ACTION PLAN ===${NC}"
@@ -208,7 +213,7 @@ lazyvim_setup() {
     fi
 }
 
-setup_firewall() {
+configure_firewall() {
     log_info "Configuring firewall"
     sudo ufw default deny incoming
     sudo ufw default allow outgoing
@@ -217,7 +222,6 @@ setup_firewall() {
     sudo ufw allow 53317/tcp comment 'LocalSend TCP'
     sudo ufw allow 53317/udp comment 'LocalSend UDP'
     sudo ufw --force enable
-    sudo systemctl enable --now ufw
     log_ok "Firewall configured properly"
 }
 
@@ -271,12 +275,11 @@ setup_dotfiles() {
     log_ok "Dotfiles installed."
 }
 
-setup_ssh() {
+enable_daemons() {
     sudo systemctl enable --now sshd
-}
-
-setup_automatic_timezone() {
     sudo systemctl enable --now geoclue
+    sudo systemctl enable --now ufw
+    sudo systemctl enable --now docker.socket
 }
 
 configure_gnome() {
@@ -297,6 +300,7 @@ configure_gnome() {
     gsettings set org.gnome.settings-daemon.plugins.media-keys volume-step 2
     gsettings set org.gnome.system.locale region "pl_PL.UTF-8"
     gsettings set org.gnome.desktop.input-sources sources "[('xkb', 'pl')]"
+    gsettings set org.gnome.desktop.datetime automatic-timezone true
     log_ok "GNOME settings applied."
 }
 

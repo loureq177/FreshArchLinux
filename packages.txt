@@ -42,6 +42,7 @@ starship
 stow
 tldr
 tmux
+tmux-plugin-manager
 traceroute
 tree-sitter
 tree-sitter-cli
