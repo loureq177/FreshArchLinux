@@ -6,7 +6,6 @@ btop
 ca-certificates
 cbonsai
 cmatrix
-czkawka
 discord
 docker
 extension-manager
@@ -42,7 +41,6 @@ stow
 tldr
 tmux
 tmux-plugin-manager
-traceroute
 tree-sitter
 tree-sitter-cli
 ttf-jetbrains-mono-nerd
