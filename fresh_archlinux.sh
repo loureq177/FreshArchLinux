@@ -314,6 +314,7 @@ cleanup() {
         log_ok "Orphans removed."
     else
         log_info "No orphan packages to remove."
+        sudo journalctl --vacuum-time=2weeks
     fi
 }
 

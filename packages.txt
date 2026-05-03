@@ -26,10 +26,13 @@ man-db
 neovim
 ollama
 opencode
+paru
 pinta
 prusa-slicer
 python-pip
 python-virtualenv
+python-pynvim
+python-jupyter-client
 rclone
 rclone-browser
 ripgrep
