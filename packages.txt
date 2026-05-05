@@ -6,6 +6,8 @@ btop
 ca-certificates
 cbonsai
 cmatrix
+cuda
+cudnn
 discord
 docker
 extension-manager
