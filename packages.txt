@@ -9,6 +9,7 @@ cmatrix
 cuda
 cudnn
 discord
+distrobox
 docker
 extension-manager
 eza
@@ -30,6 +31,7 @@ ollama
 opencode
 paru
 pinta
+podman
 prusa-slicer
 python-pip
 python-virtualenv
