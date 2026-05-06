@@ -279,7 +279,6 @@ enable_daemons() {
     sudo systemctl enable --now sshd
     sudo systemctl enable --now geoclue
     sudo systemctl enable --now ufw
-    sudo systemctl enable --now docker.socket
 }
 
 configure_gnome() {
