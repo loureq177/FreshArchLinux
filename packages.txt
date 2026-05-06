@@ -15,7 +15,6 @@ extension-manager
 eza
 fastfetch
 fd
-flatpak
 fzf
 gcc
 gnome-tweaks
