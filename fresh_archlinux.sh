@@ -17,10 +17,12 @@ main() {
     mount_external_home
     set_systemd_boot_sleep
     set_microphone_volume
+    configure_firewall
     configure_pacman
-    setup_yay
+    setup_paru
     remove_unwanted_packages
     install_packages
+    configure_firewall
     fix_brightness_nvidia
     lazyvim_setup
     fix_keyboard_lofree
@@ -64,7 +66,7 @@ welcome_message() {
     echo " 1. Load configuration"
     echo " 2. Mount external /home drive"
     echo " 3. Tweak systemd-boot & mic volume"
-    echo " 4. Setup pacman & install YAY"
+    echo " 4. Setup pacman & install PARU"
     echo " 5. Install system packages"
     echo " 6. Configure Nvidia boot params"
     echo " 7. Enable UFW firewall rules"
@@ -93,12 +95,23 @@ log_error() {
 }
 
 mount_external_home() {
-    log_info "Configuring 512 GB drive..."
+    log_info "Configuring external drive with UUID: $UUID"
+
+    if ! blkid -U "$UUID" >/dev/null; then
+        log_warn "Drive with UUID $UUID not found. Skipping mount."
+        return 0
+    fi
+
     if ! grep -q "$UUID" /etc/fstab; then
         if ! grep -q "^[^#]*[[:space:]]/home[[:space:]]" /etc/fstab; then
             echo "UUID=$UUID /home ext4 defaults 0 2" | sudo tee -a /etc/fstab >/dev/null
+            log_ok "Added $UUID to /etc/fstab"
+        else
+            log_warn "/home is already defined in /etc/fstab by another device. Skipping."
+            return 0
         fi
     fi
+
     sudo mount -a
     if [ "$(stat -c '%U' /home/"$USER" 2>/dev/null)" != "$USER" ]; then
         sudo chown -R "$USER":"$USER" /home/"$USER"
@@ -133,21 +146,21 @@ configure_pacman() {
     log_ok "Pacman configured (Color, multilib)."
 }
 
-setup_yay() {
-    if ! command -v yay &>/dev/null; then
+setup_paru() {
+    if ! command -v paru &>/dev/null; then
         sudo pacman -Syu --needed git base-devel
         (
             cd /tmp
-            git clone https://aur.archlinux.org/yay-bin.git
-            cd yay-bin
+            git clone https://aur.archlinux.org/paru-bin.git
+            cd paru-bin
             makepkg -si --noconfirm
         )
-        yay -Syu --devel
-        yay -Y --devel --save
-        rm -rf /tmp/yay-bin
-        log_ok "yay installed."
+        paru -Syu --devel
+        paru -G --save
+        rm -rf /tmp/paru-bin
+        log_ok "paru installed."
     else
-        log_info "yay already installed - skipping."
+        log_info "paru already installed - skipping."
     fi
 }
 
@@ -166,9 +179,9 @@ install_packages() {
     log_info "Installing essential applications..."
     if [ -f "packages.txt" ]; then
 
-        yay -S --noconfirm --needed rustup
+        paru -S --noconfirm --needed rustup
         rustup default stable
-        yay -S --noconfirm --needed $(cat packages.txt)
+        grep -v '^#' packages.txt | xargs paru -S --noconfirm --needed
         log_ok "Essential applications installed."
     else
         log_warn "packages.txt not found. Skipping installation."
@@ -181,15 +194,17 @@ fix_brightness_nvidia() {
     sudo sed -i 's/^MODULES=.*/MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)/' /etc/mkinitcpio.conf
     log_ok "Added Nvidia modules to /etc/mkinitcpio.conf"
 
-    local conf_file
-    conf_file=$(ls -1 /boot/loader/entries/*.conf 2>/dev/null | head -1)
+    local entries
+    entries=$(ls /boot/loader/entries/*.conf 2>/dev/null)
 
-    if [ -n "$conf_file" ]; then
-        sudo sed -i -E '/^options/ {
-            s/ *(acpi_backlight|nvidia\.NVreg_PreserveVideoMemoryAllocations|nvidia-drm\.modeset|nvidia-drm\.fbdev)=[^ ]*//g
-            s/$/ acpi_backlight=nvidia_wmi_ec nvidia.NVreg_PreserveVideoMemoryAllocations=1 nvidia-drm.modeset=1 nvidia-drm.fbdev=1/
-        }' "$conf_file"
-        log_ok "Nvidia boot parameters added to $conf_file"
+    if [ -n "$entries" ]; then
+        for conf_file in $entries; do
+            sudo sed -i -E '/^options/ {
+                s/ *(acpi_backlight|nvidia\.NVreg_PreserveVideoMemoryAllocations|nvidia-drm\.modeset|nvidia-drm\.fbdev)=[^ ]*//g
+                s/$/ acpi_backlight=nvidia_wmi_ec nvidia.NVreg_PreserveVideoMemoryAllocations=1 nvidia-drm.modeset=1 nvidia-drm.fbdev=1/
+            }' "$conf_file"
+            log_ok "Nvidia boot parameters added to $(basename "$conf_file")"
+        done
     else
         log_warn "Could not find systemd-boot entries in /boot/loader/entries/"
     fi
@@ -233,18 +248,21 @@ fix_keyboard_lofree() {
     else
         log_warn "hid_apple module not loaded. Is the keyboard connected?"
     fi
-    if ! grep -q "hid_apple.fnmode=2" /boot/loader/entries/*.conf 2>/dev/null; then
-        CONF_FILE=$(ls -1 /boot/loader/entries/*.conf 2>/dev/null | head -1)
-        if [ -n "$CONF_FILE" ]; then
-            if ! grep -q "hid_apple.fnmode=2" "$CONF_FILE"; then
-                sudo sed -i 's/options /options hid_apple.fnmode=2 /' "$CONF_FILE"
-                log_ok "Added hid_apple.fnmode=2 to $CONF_FILE"
+
+    local entries
+    entries=$(ls /boot/loader/entries/*.conf 2>/dev/null)
+
+    if [ -n "$entries" ]; then
+        for conf_file in $entries; do
+            if ! sudo grep -q "hid_apple.fnmode=2" "$conf_file"; then
+                sudo sed -i 's/options /options hid_apple.fnmode=2 /' "$conf_file"
+                log_ok "Added hid_apple.fnmode=2 to $(basename "$conf_file")"
+            else
+                log_info "hid_apple.fnmode=2 already in $(basename "$conf_file")"
             fi
-        else
-            log_warn "Could not find systemd-boot entries in /boot/loader/entries/"
-        fi
+        done
     else
-        log_info "hid_apple.fnmode=2 already configured in boot entries."
+        log_warn "Could not find systemd-boot entries in /boot/loader/entries/"
     fi
 }
 
@@ -309,7 +327,7 @@ cleanup() {
     log_ok "System cleanup complete."
     ORPHANS=$(pacman -Qdtq || true)
     if [ -n "$ORPHANS" ]; then
-        yay -Rns --noconfirm $ORPHANS
+        paru -Rns --noconfirm $ORPHANS
         log_ok "Orphans removed."
     else
         log_info "No orphan packages to remove."
