@@ -47,8 +47,8 @@ check_user() {
     done 2>/dev/null &
 }
 
-LINE_1="    ____               __       ___             __    __    _                  "
-LINE_2="   / __/_______  _____/ /_     /   |  ________/ /_  / /   (_)___  __  ___  __"
+LINE_1="    ____               __       ___            __      __                      "
+LINE_2="   / __/_______  _____/ /_     /   |  ________/ /___  / /   ( )___  __  ___  __"
 LINE_3="  / /_/ ___/ _ \/ ___/ __ \   / /| | / ___/ ___/ __ \/ /   / / __ \/ / / / |/_/"
 LINE_4=" / __/ /  /  __(__  ) / / /  / ___ |/ /  / /__/ / / / /___/ / / / / /_/ />  <  "
 LINE_5="/_/ /_/   \___/____/_/ /_/  /_/  |_/_/   \___/_/ /_/_____/_/_/ /_/\__,_/_/|_|  "
@@ -306,7 +306,7 @@ configure_gnome() {
     gsettings set org.gnome.desktop.interface font-name 'Adwaita Sans 12'
     gsettings set org.gnome.desktop.interface document-font-name 'Adwaita Sans 12'
     gsettings set org.gnome.desktop.interface show-battery-percentage true
-    gsettings set org.gnome.desktop.interface monospace-font-name 'JetBrainsMono Nerd Font Mono 12' &&
+    gsettings set org.gnome.desktop.interface monospace-font-name 'JetBrainsMono Nerd Font Mono 14' &&
         log_ok "Default monospace font set to JetBrainsMono Nerd Font Mono." ||
         log_warn "Failed to set JetBrains Mono Nerd Font as default."
     gsettings set org.gnome.desktop.wm.preferences button-layout 'appmenu:minimize,maximize,close'
@@ -314,8 +314,10 @@ configure_gnome() {
     gsettings set org.gnome.desktop.input-sources xkb-options "['caps:escape']"
     gsettings set org.gnome.desktop.interface clock-format '24h'
     gsettings set org.gnome.desktop.peripherals.keyboard delay 200
-    gsettings set org.gnome.settings-daemon.plugins.media-keys volume-step 2
-    gsettings set org.gnome.system.locale region "pl_PL.UTF-8"
+    gsettings set org.gnome.settings-daemon.plugins.media-keys volume-step 4
+    gsettings set org.gnome.system.locale region "en_US.UTF-8"
+    gsettings set org.freedesktop.ibus.panel.emoji hotkey "[]"
+    gsettings set org.freedesktop.ibus.panel.emoji unicode-hotkey "[]"
     gsettings set org.gnome.desktop.input-sources sources "[('xkb', 'pl')]"
     gsettings set org.gnome.desktop.datetime automatic-timezone true
     log_ok "GNOME settings applied."

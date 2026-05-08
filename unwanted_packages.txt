@@ -1,4 +1,5 @@
 epiphany
+evince
 gnome-calendar
 gnome-weather
 gnome-console
@@ -8,6 +9,9 @@ gnome-maps
 gnome-tour
 gnome-system-monitor
 gnome-software
+gnome-user-docs
 htop
 nano
 orca
+sushi
+yelp
