@@ -1,5 +1,7 @@
 # --- System Core & Drivers ---
 amd-ucode
+gst-plugins-base
+gst-plugins-good
 lenovolegionlinux-dkms-git
 libva-nvidia-driver
 nvidia-open-dkms
@@ -16,7 +18,7 @@ hyperfine
 jq
 ripgrep
 stow
-tldr
+tlrc
 wget
 yt-dlp
 zoxide
