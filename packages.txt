@@ -4,6 +4,7 @@ arduino-cli
 asciiquarium
 aws-cli-v2
 bat
+bluetui
 btop
 bun
 ca-certificates
@@ -28,6 +29,7 @@ go
 gst-plugins-base
 gst-plugins-good
 hyperfine
+impala
 jlink-software-and-documentation
 jq
 lazygit
@@ -36,6 +38,7 @@ libreoffice-fresh
 libva-nvidia-driver
 man-db
 neovim
+nitch
 nodejs
 nrfutil
 nvidia-open-dkms
