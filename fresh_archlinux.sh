@@ -28,8 +28,9 @@ main() {
     fix_keyboard_lofree
     setup_browser
     setup_dotfiles
-    configure_gnome
     enable_daemons
+    configure_gnome
+    configure_lid_switch
     cleanup
     finished_message
 }
@@ -321,6 +322,11 @@ configure_gnome() {
     gsettings set org.gnome.desktop.input-sources sources "[('xkb', 'pl')]"
     gsettings set org.gnome.desktop.datetime automatic-timezone true
     log_ok "GNOME settings applied."
+}
+
+configure_lid_switch() {
+    sudo sed -i 's/^.*HandleLidSwitchExternalPower=.*/HandleLidSwitchExternalPower=ignore/' /etc/systemd/logind.conf
+    sudo systemctl restart systemd-logind
 }
 
 cleanup() {
