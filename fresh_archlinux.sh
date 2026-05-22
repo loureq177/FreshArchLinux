@@ -1,4 +1,4 @@
-#! /usr/bin/env bash
+#!/usr/bin/env bash
 
 set -euo pipefail
 source config
@@ -22,14 +22,14 @@ main() {
     setup_paru
     remove_unwanted_packages
     install_packages
-    configure_firewall
     fix_brightness_nvidia
     lazyvim_setup
     fix_keyboard_lofree
+    configure_base_boot_params
     setup_browser
     setup_dotfiles
     enable_daemons
-    configure_gnome
+    configure_gtk_wayland
     configure_lid_switch
     cleanup
     finished_message
@@ -48,11 +48,11 @@ check_user() {
     done 2>/dev/null &
 }
 
-LINE_1="    ____               __       ___            __      __                      "
-LINE_2="   / __/_______  _____/ /_     /   |  ________/ /___  / /   ( )___  __  ___  __"
-LINE_3="  / /_/ ___/ _ \/ ___/ __ \   / /| | / ___/ ___/ __ \/ /   / / __ \/ / / / |/_/"
-LINE_4=" / __/ /  /  __(__  ) / / /  / ___ |/ /  / /__/ / / / /___/ / / / / /_/ />  <  "
-LINE_5="/_/ /_/   \___/____/_/ /_/  /_/  |_/_/   \___/_/ /_/_____/_/_/ /_/\__,_/_/|_|  "
+LINE_1="    ____                __        ___            __      __                      "
+LINE_2="   / __/_______  _____/ /_      /   |  ________/ /___  / /   ( )___  __  ___  __"
+LINE_3="  / /_/ ___/ _ \/ ___/ __ \    / /| | / ___/ ___/ __ \/ /   / / __ \/ / / / |/_/"
+LINE_4=" / __/ /  /  __(__  ) / / /   / ___ |/ /  / /__/ / / / /___/ / / / / /_/ />  <  "
+LINE_5="/_/ /_/   \___/____/_/ /_/   /_/  |_/_/   \___/_/ /_/_____/_/_/ /_/\__,_/_/|_|  "
 
 welcome_message() {
     clear
@@ -68,12 +68,12 @@ welcome_message() {
     echo " 2. Mount external /home drive"
     echo " 3. Tweak systemd-boot & mic volume"
     echo " 4. Setup pacman & install PARU"
-    echo " 5. Install system packages"
-    echo " 6. Configure Nvidia boot params"
+    echo " 5. Install system packages (Hyprland workflow)"
+    echo " 6. Configure Native Hybrid Early KMS"
     echo " 7. Enable UFW firewall rules"
     echo " 8. Setup LazyVim & Zen Browser"
-    echo " 9. Download & link dotfiles"
-    echo "10. Tweak GNOME (themes, fonts)"
+    echo " 9. Download & link dotfiles via Stow"
+    echo "10. Configure GTK/Wayland settings (gsettings)"
     echo "11. Clean up & remove orphans"
     echo -e "${BLUE}===================${NC}\n"
 
@@ -86,7 +86,7 @@ log_info() {
     echo -e "${BLUE}[INFO]${BLUE}  $*"
 }
 log_ok() {
-    echo -e "${GREEN}[OK]${GREEN}    $*"
+    echo -e "${GREEN}[OK]${GREEN}     $*"
 }
 log_warn() {
     echo -e "${YELLOW}[WARN]${YELLOW}  $*"
@@ -179,7 +179,6 @@ remove_unwanted_packages() {
 install_packages() {
     log_info "Installing essential applications..."
     if [ -f "packages.txt" ]; then
-
         paru -S --noconfirm --needed rustup
         rustup default stable
         grep -v '^#' packages.txt | xargs paru -S --noconfirm --needed
@@ -190,25 +189,25 @@ install_packages() {
 }
 
 fix_brightness_nvidia() {
-    log_info "Configuring Nvidia Early KMS and boot parameters..."
+    log_info "Configuring Native Hybrid Early KMS and boot parameters..."
 
-    sudo sed -i 's/^MODULES=.*/MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)/' /etc/mkinitcpio.conf
-    log_ok "Added Nvidia modules to /etc/mkinitcpio.conf"
+    local config_file="/etc/mkinitcpio.conf"
+    local required_modules=("amdgpu" "nvidia" "nvidia_modeset" "nvidia_uvm" "nvidia_drm")
 
-    local entries
-    entries=$(ls /boot/loader/entries/*.conf 2>/dev/null)
+    local current_modules
+    current_modules=$(grep -E "^MODULES=\(" "$config_file" | sed -E 's/MODULES=\((.*)\)/\1/')
 
-    if [ -n "$entries" ]; then
-        for conf_file in $entries; do
-            sudo sed -i -E '/^options/ {
-                s/ *(acpi_backlight|nvidia\.NVreg_PreserveVideoMemoryAllocations|nvidia-drm\.modeset|nvidia-drm\.fbdev)=[^ ]*//g
-                s/$/ acpi_backlight=nvidia_wmi_ec nvidia.NVreg_PreserveVideoMemoryAllocations=1 nvidia-drm.modeset=1 nvidia-drm.fbdev=1/
-            }' "$conf_file"
-            log_ok "Nvidia boot parameters added to $(basename "$conf_file")"
-        done
-    else
-        log_warn "Could not find systemd-boot entries in /boot/loader/entries/"
-    fi
+    for mod in "${required_modules[@]}"; do
+        if [[ ! " $current_modules " =~ " $mod " ]]; then
+            current_modules="$current_modules $mod"
+        fi
+    done
+
+    current_modules=$(echo "$current_modules" | tr -s ' ' | sed 's/^ //;s/ $//')
+    sudo sed -i -E "s|^MODULES=\(.*\)|MODULES=($current_modules)|" "$config_file"
+    log_ok "Updated MODULES in $config_file to: ($current_modules)"
+
+    add_kernel_params "acpi_backlight=nvidia_wmi_ec amdgpu.dcfeaturemask=0x8 amdgpu.abmlevel=0 nvidia-drm.modeset=1 nvidia-drm.fbdev=1"
 
     log_info "Rebuilding initramfs (this might take a moment)..."
     if sudo mkinitcpio -P >/dev/null; then
@@ -216,6 +215,60 @@ fix_brightness_nvidia() {
     else
         log_error "Failed to rebuild initramfs!"
     fi
+}
+
+add_kernel_params() {
+    local params="$*"
+    log_info "Dodawanie parametrów startowych: $params"
+
+    if [ -f /etc/kernel/cmdline ]; then
+        local current_cmdline=$(cat /etc/kernel/cmdline)
+        local new_cmdline="$current_cmdline"
+        for param in $params; do
+            local key="${param%%=*}"
+            new_cmdline=$(echo "$new_cmdline" | sed -E "s/ *$key(=[^ ]+)?//g")
+        done
+        echo "$new_cmdline $params" | tr -s ' ' | sudo tee /etc/kernel/cmdline >/dev/null
+    else
+        local current_cmdline=$(cat /proc/cmdline)
+        local new_cmdline="$current_cmdline"
+        for param in $params; do
+            local key="${param%%=*}"
+            new_cmdline=$(echo "$new_cmdline" | sed -E "s/ *$key(=[^ ]+)?//g")
+        done
+        echo "$new_cmdline $params" | tr -s ' ' | sudo tee /etc/kernel/cmdline >/dev/null
+    fi
+
+    local entries
+    entries=$(ls /boot/loader/entries/*.conf 2>/dev/null || true)
+
+    if [ -n "$entries" ]; then
+        for conf_file in $entries; do
+            local current_options
+            current_options=$(sudo grep "^options" "$conf_file" || true)
+            if [ -n "$current_options" ]; then
+                local base_options="${current_options#options }"
+
+                for param in $params; do
+                    local key="${param%%=*}"
+                    base_options=$(echo "$base_options" | sed -E "s/ *$key(=[^ ]+)?//g")
+                done
+
+                local new_options="options $base_options $params"
+                new_options=$(echo "$new_options" | tr -s ' ')
+
+                sudo sed -i -E "s|^options.*|$new_options|" "$conf_file"
+                log_ok "Zaktualizowano parametry w $(basename "$conf_file")"
+            fi
+        done
+    else
+        log_warn "Brak plików .conf w /boot/loader/entries/. Parametry dodano tylko do /etc/kernel/cmdline"
+    fi
+}
+
+configure_base_boot_params() {
+    log_info "Konfiguracja podstawowych parametrów systemowych (wydajność, zasilanie, debug)..."
+    add_kernel_params "zswap.enabled=0 mem_sleep_default=deep quiet loglevel=3 nowatchdog vsyscall=emulate"
 }
 
 lazyvim_setup() {
@@ -250,21 +303,7 @@ fix_keyboard_lofree() {
         log_warn "hid_apple module not loaded. Is the keyboard connected?"
     fi
 
-    local entries
-    entries=$(ls /boot/loader/entries/*.conf 2>/dev/null)
-
-    if [ -n "$entries" ]; then
-        for conf_file in $entries; do
-            if ! sudo grep -q "hid_apple.fnmode=2" "$conf_file"; then
-                sudo sed -i 's/options /options hid_apple.fnmode=2 /' "$conf_file"
-                log_ok "Added hid_apple.fnmode=2 to $(basename "$conf_file")"
-            else
-                log_info "hid_apple.fnmode=2 already in $(basename "$conf_file")"
-            fi
-        done
-    else
-        log_warn "Could not find systemd-boot entries in /boot/loader/entries/"
-    fi
+    add_kernel_params "hid_apple.fnmode=2"
 }
 
 setup_browser() {
@@ -295,33 +334,22 @@ setup_dotfiles() {
 }
 
 enable_daemons() {
-    sudo systemctl enable --now sshd
-    sudo systemctl enable --now geoclue
-    sudo systemctl enable --now ufw
+    sudo systemctl enable --now sshd geoclue ufw
+    systemctl --user enable --now psd wireplumber xdg-user-dirs ydotool gnome-keyring-daemon.socket p11-kit-server.socket pipewire-pulse.socket pipewire.socket
 }
 
-configure_gnome() {
-    log_info "Configuring GNOME environment..."
+configure_gtk_wayland() {
+    log_info "Configuring default GTK/Wayland aesthetics for standalone WM..."
     gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark' || log_warn "GTK theme failed"
     gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' || log_warn "Color scheme failed"
     gsettings set org.gnome.desktop.interface font-name 'Adwaita Sans 12'
-    gsettings set org.gnome.desktop.interface document-font-name 'Adwaita Sans 12'
-    gsettings set org.gnome.desktop.interface show-battery-percentage true
-    gsettings set org.gnome.desktop.interface monospace-font-name 'JetBrainsMono Nerd Font Mono 14' &&
-        log_ok "Default monospace font set to JetBrainsMono Nerd Font Mono." ||
-        log_warn "Failed to set JetBrains Mono Nerd Font as default."
-    gsettings set org.gnome.desktop.wm.preferences button-layout 'appmenu:minimize,maximize,close'
-    gsettings set org.gnome.desktop.wm.preferences auto-raise true
+    gsettings set org.gnome.desktop.interface monospace-font-name 'JetBrainsMono Nerd Font Mono 14'
+    gsettings set org.gnome.desktop.interface cursor-theme 'Adwaita'
+    gsettings set org.gnome.desktop.interface icon-theme 'Papirus-Dark'
     gsettings set org.gnome.desktop.input-sources xkb-options "['caps:escape']"
-    gsettings set org.gnome.desktop.interface clock-format '24h'
-    gsettings set org.gnome.desktop.peripherals.keyboard delay 200
-    gsettings set org.gnome.settings-daemon.plugins.media-keys volume-step 4
-    gsettings set org.gnome.system.locale region "en_US.UTF-8"
-    gsettings set org.freedesktop.ibus.panel.emoji hotkey "[]"
-    gsettings set org.freedesktop.ibus.panel.emoji unicode-hotkey "[]"
     gsettings set org.gnome.desktop.input-sources sources "[('xkb', 'pl')]"
-    gsettings set org.gnome.desktop.datetime automatic-timezone true
-    log_ok "GNOME settings applied."
+    gsettings set org.gnome.desktop.interface clock-format '24h'
+    log_ok "GTK preferences applied via gsettings."
 }
 
 configure_lid_switch() {
@@ -351,6 +379,7 @@ finished_message() {
     echo -e "${GREEN}========================================${NC}"
     echo ""
     echo "Logs saved to: $LOG_FILE"
+    echo "System is primed for Hyprland login. Enjoy the speed."
     echo ""
 }
 
