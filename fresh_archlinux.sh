@@ -15,14 +15,14 @@ main() {
     check_user
     welcome_message
     # mount_external_home
-    # set_systemd_boot_sleep
     # set_microphone_volume
     setup_paru
     install_packages
-    # fix_brightness_nvidia
     configure_firewall
-    # fix_keyboard_lofree
-    # configure_base_boot_params
+    fix_brightness_nvidia
+    fix_keyboard_lofree
+    configure_base_boot_params
+    set_systemd_boot_sleep
     # setup_browser
     # setup_dotfiles
     # enable_daemons
@@ -165,88 +165,68 @@ install_packages() {
     fi
 }
 
-# fix_brightness_nvidia() {
-#     log_info "Configuring Native Hybrid Early KMS and boot parameters..."
-#
-#     local config_file="/etc/mkinitcpio.conf"
-#     local required_modules=("amdgpu" "nvidia" "nvidia_modeset" "nvidia_uvm" "nvidia_drm")
-#
-#     local current_modules
-#     current_modules=$(grep -E "^MODULES=\(" "$config_file" | sed -E 's/MODULES=\((.*)\)/\1/')
-#
-#     for mod in "${required_modules[@]}"; do
-#         if [[ ! " $current_modules " =~ " $mod " ]]; then
-#             current_modules="$current_modules $mod"
-#         fi
-#     done
-#
-#     current_modules=$(echo "$current_modules" | tr -s ' ' | sed 's/^ //;s/ $//')
-#     sudo sed -i -E "s|^MODULES=\(.*\)|MODULES=($current_modules)|" "$config_file"
-#     log_ok "Updated MODULES in $config_file to: ($current_modules)"
-#
-#     add_kernel_params "acpi_backlight=nvidia_wmi_ec amdgpu.dcfeaturemask=0x8 amdgpu.abmlevel=0 nvidia-drm.modeset=1 nvidia-drm.fbdev=1"
-#
-#     log_info "Rebuilding initramfs (this might take a moment)..."
-#     if sudo mkinitcpio -P >/dev/null; then
-#         log_ok "Initramfs rebuilt successfully."
-#     else
-#         log_error "Failed to rebuild initramfs!"
-#     fi
-# }
+fix_brightness_nvidia() {
+    log_info "Configuring Native Hybrid Early KMS and boot parameters..."
 
-# add_kernel_params() {
-#     local params="$*"
-#     log_info "Dodawanie parametrów startowych: $params"
-#
-#     if [ -f /etc/kernel/cmdline ]; then
-#         local current_cmdline=$(cat /etc/kernel/cmdline)
-#         local new_cmdline="$current_cmdline"
-#         for param in $params; do
-#             local key="${param%%=*}"
-#             new_cmdline=$(echo "$new_cmdline" | sed -E "s/ *$key(=[^ ]+)?//g")
-#         done
-#         echo "$new_cmdline $params" | tr -s ' ' | sudo tee /etc/kernel/cmdline >/dev/null
-#     else
-#         local current_cmdline=$(cat /proc/cmdline)
-#         local new_cmdline="$current_cmdline"
-#         for param in $params; do
-#             local key="${param%%=*}"
-#             new_cmdline=$(echo "$new_cmdline" | sed -E "s/ *$key(=[^ ]+)?//g")
-#         done
-#         echo "$new_cmdline $params" | tr -s ' ' | sudo tee /etc/kernel/cmdline >/dev/null
-#     fi
-#
-#     local entries
-#     entries=$(ls /boot/loader/entries/*.conf 2>/dev/null || true)
-#
-#     if [ -n "$entries" ]; then
-#         for conf_file in $entries; do
-#             local current_options
-#             current_options=$(sudo grep "^options" "$conf_file" || true)
-#             if [ -n "$current_options" ]; then
-#                 local base_options="${current_options#options }"
-#
-#                 for param in $params; do
-#                     local key="${param%%=*}"
-#                     base_options=$(echo "$base_options" | sed -E "s/ *$key(=[^ ]+)?//g")
-#                 done
-#
-#                 local new_options="options $base_options $params"
-#                 new_options=$(echo "$new_options" | tr -s ' ')
-#
-#                 sudo sed -i -E "s|^options.*|$new_options|" "$conf_file"
-#                 log_ok "Zaktualizowano parametry w $(basename "$conf_file")"
-#             fi
-#         done
-#     else
-#         log_warn "Brak plików .conf w /boot/loader/entries/. Parametry dodano tylko do /etc/kernel/cmdline"
-#     fi
-# }
+    local config_file="/etc/mkinitcpio.conf"
+    local required_modules=("amdgpu" "nvidia" "nvidia_modeset" "nvidia_uvm" "nvidia_drm")
 
-# configure_base_boot_params() {
-#     log_info "Konfiguracja podstawowych parametrów systemowych (wydajność, zasilanie, debug)..."
-#     add_kernel_params "zswap.enabled=0 mem_sleep_default=deep quiet loglevel=3 nowatchdog vsyscall=emulate"
-# }
+    local current_modules
+    current_modules=$(grep -E "^MODULES=\(" "$config_file" | sed -E 's/MODULES=\((.*)\)/\1/')
+
+    for mod in "${required_modules[@]}"; do
+        if [[ ! " $current_modules " =~ " $mod " ]]; then
+            current_modules="$current_modules $mod"
+        fi
+    done
+
+    current_modules=$(echo "$current_modules" | tr -s ' ' | sed 's/^ //;s/ $//')
+    sudo sed -i -E "s|^MODULES=\(.*\)|MODULES=($current_modules)|" "$config_file"
+    log_ok "Updated MODULES in $config_file to: ($current_modules)"
+
+    _add_kernel_params "acpi_backlight=nvidia_wmi_ec amdgpu.dcfeaturemask=0x8 amdgpu.abmlevel=0 nvidia-drm.modeset=1 nvidia-drm.fbdev=1"
+}
+
+fix_keyboard_lofree() {
+    log_info "Fixing Lofree keyboard (Function keys)..."
+    if [ -d "/sys/module/hid_apple" ]; then
+        echo 2 | sudo tee /sys/module/hid_apple/parameters/fnmode >/dev/null
+        log_ok "hid_apple fnmode set to 2 (runtime)"
+    else
+        log_warn "hid_apple module not loaded. Is the keyboard connected?"
+    fi
+
+    _add_kernel_params "hid_apple.fnmode=2"
+}
+
+configure_base_boot_params() {
+    log_info "Konfiguracja podstawowych parametrów systemowych (wydajność, zasilanie, debug)..."
+    add_kernel_params "zswap.enabled=0 mem_sleep_default=deep quiet loglevel=3 nowatchdog vsyscall=emulate amd_pstate=active pcie_aspm=force"
+}
+
+_add_kernel_params() {
+    local params="$*"
+    local cmdline_file="/etc/kernel/cmdline"
+
+    if [ ! -f "$cmdline_file" ]; then
+        log_error "$cmdline_file nie istnieje!"
+        return 1
+    fi
+
+    log_info "Dodawanie parametrów startowych: $params"
+
+    local current_cmdline
+    current_cmdline=$(cat "$cmdline_file")
+    local new_cmdline="$current_cmdline"
+
+    for param in $params; do
+        local key="${param%%=*}"
+        new_cmdline=$(echo "$new_cmdline" | sed -E "s/ *$key(=[^ ]+)?//g")
+    done
+
+    echo "$new_cmdline $params" | tr -s ' ' | sudo tee "$cmdline_file" >/dev/null
+    log_ok "Zaktualizowano parametry w $cmdline_file"
+}
 
 configure_firewall() {
     log_info "Configuring firewall"
@@ -259,18 +239,6 @@ configure_firewall() {
     sudo ufw --force enable
     log_ok "Firewall configured properly"
 }
-
-# fix_keyboard_lofree() {
-#     log_info "Fixing Lofree keyboard (Function keys)..."
-#     if [ -d "/sys/module/hid_apple" ]; then
-#         echo 2 | sudo tee /sys/module/hid_apple/parameters/fnmode >/dev/null
-#         log_ok "hid_apple fnmode set to 2 (runtime)"
-#     else
-#         log_warn "hid_apple module not loaded. Is the keyboard connected?"
-#     fi
-#
-#     add_kernel_params "hid_apple.fnmode=2"
-# }
 
 # setup_browser() {
 #     log_info "Setting Zen Browser as default..."
@@ -346,6 +314,7 @@ finished_message() {
     echo ""
     echo "Logs saved to: $LOG_FILE"
     echo "System is primed for Hyprland login. Enjoy the speed."
+    echo "Restart is necessary for the installation to finish."
     echo ""
 }
 
