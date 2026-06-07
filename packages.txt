@@ -1,146 +1,183 @@
-7zip
-amd-ucode
-arduino-cli
-asciiquarium
-baobab
-bat
-bibata-cursor-git
-bluez
-bluez-utils
-bluetui
-brightnessctl
-btop
-bun
-ca-certificates
-cliphist
-cmatrix
-cuda
-cudnn
-distrobox
-envycontrol
-eza
-fastfetch
-fd
-fprintd
-freecad
-fzf
-galculator
-gcc
-ghostty
-git
-git-delta
-github-cli
-grim
-grimblast
-gst-plugins-base
-gst-plugins-good
-gvfs
-gvfs-mtp
-hyperfine
-hyprcursor
-hypridle
-hyprland
-hyprmod
-hyprpaper
-hyprpicker
-hyprpolkitagent
-hyprsunset
-impala
-jq
-lavat-git
-lazygit
-lenovolegionlinux-dkms-git
-libcamera
-libreoffice-fresh
-libva-nvidia-driver
-linux-headers
-ly
-mako
-man-db
-ncdu
-neovim
-nitch
-nodejs
-nvidia-dkms
-nvidia-utils
-nvidia-settings
-nvidia-prime
-ollama
-opencode
-papirus-icon-theme
-pastel
-php
-pipewire
-pipewire-alsa
-pipewire-audio
-pipewire-jack
-pipewire-pulse
-podman
-profile-sync-daemon
-prusa-slicer
-pwvucontrol
-python-jupyter-client
-python-pip
-python-pynvim
-python-virtualenv
-qt5-wayland
-qt6-wayland
-rclone
-resvg
-ripgrep
-rofi
-rofi-emoji
-ruff
-satty
-slurp
-sox
-spotify
-starship
-steam
-stow
-symfony-cli
-thokr
-thunar
-tlrc
-tree-sitter
-tree-sitter-cli
-ttf-jetbrains-mono-nerd
-tumbler
-udiskie
-ufw
-uv
-uwsm
-visual-studio-code-bin
-waybar
-wget
-wl-clipboard
-wtype
-xdg-desktop-portal
-xdg-desktop-portal-gtk
-xdg-desktop-portal-hyprland
-xorg-xauth
-yazi
-yt-dlp
-zen-browser-bin
-zoxide
-zram-generator
-zsh
-zsh-autosuggestions
-zsh-fast-syntax-highlighting
-gnome-calculator
-gnome-clocks
-gnome-logs
-gnome-mahjongg
-nautilus
-loupe
-gnome-keyring
-papers
-nwg-look
-vulkan-radeon
-lib32-vulkan-radeon
-showtime
-gnome-text-editor
-gst-plugins-good
-gst-plugins-bad
-gst-plugins-ugly
-x264
+PREREQ_PKGS=(
+    openssl-1.1
+)
+
+SYSTEM_PKGS=(
+    amd-ucode
+    linux-headers
+    ca-certificates
+    bluez
+    bluez-utils
+    udiskie
+    ufw
+    zram-generator
+    libcamera
+    lenovolegionlinux-dkms-git
+)
+
+NVIDIA_PKGS=(
+    cuda
+    cudnn
+    nvidia-container-toolkit
+    nvidia-dkms
+    nvidia-utils
+    nvidia-settings
+    libva-nvidia-driver
+    envycontrol
+    vulkan-radeon
+    lib32-vulkan-radeon
+    lib32-nvidia-utils
+)
+
+FINGERPRINT_PKGS=(
+    fprintd
+    libfprint-tod
+    libfprint-2-tod1-elan
+)
+
+HYPRLAND_PKGS=(
+    hyprland
+    hyprcursor
+    hypridle
+    hyprlock
+    hyprpaper
+    hyprpicker
+    hyprpolkitagent
+    hyprsunset
+    hyprshutdown
+    hyprmod
+    ly
+    xdg-desktop-portal
+    xdg-desktop-portal-gtk
+    xdg-desktop-portal-hyprland
+    qt5-wayland
+    qt6-wayland
+    waybar
+    rofi
+    rofi-emoji
+    cliphist
+    wl-clipboard
+    wtype
+    grimblast-git
+    mako
+)
+
+AUDIO_PKGS=(
+    pipewire
+    pipewire-alsa
+    pipewire-audio
+    pipewire-jack
+    pipewire-pulse
+    gst-plugins-base
+    gst-plugins-good
+    gst-plugins-bad
+    gst-plugins-ugly
+    x264
+    sox
+    pwvucontrol
+)
+
+APP_PKGS=(
+    zen-browser-bin
+    spotify
+    visual-studio-code-bin
+    libreoffice-fresh
+    freecad
+    prusa-slicer
+    arduino-cli
+    neovim
+    ghostty
+    nautilus
+    loupe
+    papers
+    showtime
+    gnome-text-editor
+    gnome-calculator
+    gnome-clocks
+    gnome-logs
+    yt-dlp
+    gnome-mahjongg
+    opencode
+    steam
+    mangohud
+    lib32-mangohud
+    gamemode
+    lib32-gamemode
+    snapshot
+    discord
+)
+
+CLI_PKGS=(
+    fwupd
+    zip
+    unzip
+    bun
+    gcc
+    7zip
+    bat
+    btop
+    bun
+    cmatrix
+    distrobox
+    eza
+    fastfetch
+    fd
+    fzf
+    git
+    git-delta
+    github-cli
+    hyperfine
+    jq
+    lazygit
+    nitch
+    nodejs
+    python-pynvim
+    python-jupyter-client
+    ripgrep
+    rclone
+    stow
+    symfony-cli
+    wget
+    yazi
+    zoxide
+    man-db
+    php
+    podman
+    profile-sync-daemon
+    resvg
+    ruff
+    satty
+    thokr
+    zsh
+    zsh-autosuggestions
+    zsh-fast-syntax-highlighting
+    ncdu
+    tlrc
+    uv
+)
+
+THEME_PKGS=(
+    ttf-jetbrains-mono-nerd
+    papirus-icon-theme
+    bibata-cursor-git
+    starship
+    noto-fonts
+    noto-fonts-emoji
+    noto-fonts-cjk
+    sound-theme-freedesktop
+)
+
+MISC_PKGS=(
+    asciiquarium
+    baobab
+    bluetui
+    brightnessctl
+    gvfs
+    gvfs-mtp
+    impala
+    jre-openjdk
+    lavat-git
+    ollama
+    pastel
+    spt
+)

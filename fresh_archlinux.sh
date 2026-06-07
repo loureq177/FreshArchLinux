@@ -20,15 +20,15 @@ main() {
     install_and_setup_paru
     install_packages
     configure_firewall
-    fix_brightness_nvidia
+    # fix_brightness_nvidia
     fix_keyboard_lofree
-    configure_base_boot_params
+    # configure_base_boot_params
     set_systemd_boot_sleep
     change_shell
     configure_environment
     configure_uki_preset
     setup_dotfiles
-    enable_daemons
+    setup_daemons
     configure_lid_switch
     cleanup
     finished_message
@@ -47,7 +47,7 @@ check_user() {
     done 2>/dev/null &
 }
 
-LINE_1="    ____                __        ___            __      __                    "
+LINE_1="    ____               __        ___            __      __                    "
 LINE_2="   / __/_______  _____/ /_      /   |  ________/ /___  / /   ( )___  __  ___  __"
 LINE_3="  / /_/ ___/ _ \/ ___/ __ \    / /| | / ___/ ___/ __ \/ /   / / __ \/ / / / |/_/"
 LINE_4=" / __/ /  /  __(__  ) / / /   / ___ |/ /  / /__/ / / / /___/ / / / / /_/ />  <  "
@@ -79,10 +79,10 @@ welcome_message() {
     echo -e "\n${GREEN}Here we go! Buckle up...${NC}\n"
 }
 
-_log_info() { echo -e "${BLUE}[INFO]${NC} $*"; }
-_log_ok() { echo -e "${GREEN}[OK]${NC} $*"; }
-_log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
-_log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
+_log_info() { echo -e "${BLUE}\n[INFO]${NC} $*"; }
+_log_ok() { echo -e "${GREEN}\n[OK]${NC} $*"; }
+_log_warn() { echo -e "${YELLOW}\n[WARN]${NC} $*"; }
+_log_error() { echo -e "${RED}\n[ERROR]${NC} $*"; }
 
 mount_external_home() {
     _log_info "Configuring external drive with UUID: $UUID"
@@ -143,14 +143,33 @@ install_and_setup_paru() {
     paru -Syu --devel --noconfirm
 }
 
+_install_group() {
+    local label="$1"
+    shift
+    _log_info "Installing [$label]..."
+    paru -S --noconfirm --needed "$@" || {
+        _log_error "Failed: $label"
+        return 1
+    }
+    _log_ok "[$label] done."
+}
+
 install_packages() {
     _log_info "Installing essential applications..."
-    if [ -f "packages.txt" ]; then
-        grep -v '^#' packages.txt | xargs paru -S --noconfirm --needed
-        _log_ok "Essential applications installed."
-    else
-        _log_warn "packages.txt not found. Skipping installation."
-    fi
+    _install_group "Prerequisites" "${PREREQ_PKGS[@]}"
+
+    local all_pkgs=(
+        "${SYSTEM_PKGS[@]}"
+        "${NVIDIA_PKGS[@]}"
+        "${FINGERPRINT_PKGS[@]}"
+        "${HYPRLAND_PKGS[@]}"
+        "${AUDIO_PKGS[@]}"
+        "${APP_PKGS[@]}"
+        "${CLI_PKGS[@]}"
+        "${THEME_PKGS[@]}"
+        "${MISC_PKGS[@]}"
+    )
+    _install_group "All packages" "${all_pkgs[@]}"
 }
 
 _add_kernel_params() {
@@ -178,30 +197,34 @@ _add_kernel_params() {
     _log_ok "Updated parameters in: $cmdline_file"
 }
 
-fix_brightness_nvidia() {
-    _log_info "Configuring Native Hybrid Early KMS and boot parameters..."
-    local config_file="/etc/mkinitcpio.conf"
-    local required_modules=("amdgpu" "nvidia" "nvidia_modeset" "nvidia_uvm" "nvidia_drm")
-    local current_modules
+# fix_brightness_nvidia() {
+#     _log_info "Configuring Native Hybrid Early KMS and boot parameters..."
+#     local config_file="/etc/mkinitcpio.conf"
+#     local required_modules=("amdgpu" "nvidia" "nvidia_modeset" "nvidia_uvm" "nvidia_drm")
+#     local current_modules
+#
+#     current_modules=$(grep -E "^MODULES=\(" "$config_file" | sed -E 's/MODULES=\((.*)\)/\1/')
+#
+#     for mod in "${required_modules[@]}"; do
+#         if [[ ! " $current_modules " =~ " $mod " ]]; then
+#             current_modules="$current_modules $mod"
+#         fi
+#     done
+#
+#     current_modules=$(echo "$current_modules" | tr -s ' ' | sed 's/^ //;s/ $//')
+#     sudo sed -i -E "s|^MODULES=\(.*\)|MODULES=($current_modules)|" "$config_file"
+#     _log_ok "Updated MODULES in $config_file to: ($current_modules)"
+#
+#     _add_kernel_params ""
+#     _log_info "Rebuilding initramfs..."
+#     sudo mkinitcpio -P
+#     _log_ok "Initramfs rebuilt successfully."
+# }
 
-    current_modules=$(grep -E "^MODULES=\(" "$config_file" | sed -E 's/MODULES=\((.*)\)/\1/')
-
-    for mod in "${required_modules[@]}"; do
-        if [[ ! " $current_modules " =~ " $mod " ]]; then
-            current_modules="$current_modules $mod"
-        fi
-    done
-
-    current_modules=$(echo "$current_modules" | tr -s ' ' | sed 's/^ //;s/ $//')
-    sudo sed -i -E "s|^MODULES=\(.*\)|MODULES=($current_modules)|" "$config_file"
-    _log_ok "Updated MODULES in $config_file to: ($current_modules)"
-
-    _add_kernel_params "acpi_backlight=nvidia_wmi_ec amdgpu.dcfeaturemask=0x8 amdgpu.abmlevel=0 nvidia-drm.modeset=1 nvidia-drm.fbdev=1"
-
-    _log_info "Rebuilding initramfs..."
-    sudo mkinitcpio -P
-    _log_ok "Initramfs rebuilt successfully."
-}
+# configure_base_boot_params() {
+#     _log_info "Configuring base boot parameters (performance, power, debug)..."
+#     _add_kernel_params ""
+# }
 
 fix_keyboard_lofree() {
     _log_info "Fixing Lofree keyboard (Function keys)..."
@@ -212,11 +235,6 @@ fix_keyboard_lofree() {
         _log_warn "hid_apple module not loaded. Is the keyboard connected?"
     fi
     _add_kernel_params "hid_apple.fnmode=2"
-}
-
-configure_base_boot_params() {
-    _log_info "Configuring base boot parameters (performance, power, debug)..."
-    _add_kernel_params "zswap.enabled=0 mem_sleep_default=deep quiet loglevel=3 nowatchdog vsyscall=emulate amd_pstate=active pcie_aspm=force"
 }
 
 set_systemd_boot_sleep() {
@@ -314,18 +332,22 @@ setup_dotfiles() {
     fi
 }
 
-enable_daemons() {
+setup_daemons() {
     _log_info "Enabling system daemons..."
     sudo systemctl enable --now ufw.service podman.socket NetworkManager.service
-    sudo systemctl enable ly.service
-    systemctl --user enable --now psd.service pipewire.service pipewire-pulse.service
+    sudo systemctl enable ly@tty1.service cups.socket
+    sudo systemctl disable --now getty@tty1.service cups.service
+    sudo systemctl disable --now fwupd-refresh.timer fwupd-refresh.service
+    systemctl --user enable --now psd.service pipewire.service pipewire-pulse.service hyprpolkitagent.service rclone-bisync.timer
+    sudo systemctl stop wpa_supplicant.service
+    sudo systemctl mask wpa_supplicant.service systemd-tpm2-setup-early.service systemd-tpm2-setup.service
+    systemctl --user mask at-spi-dbus-bus.service
     _log_ok "Daemons enabled."
 }
 
 configure_lid_switch() {
     _log_info "Configuring lid switch behavior..."
     sudo sed -i 's/^.*HandleLidSwitchExternalPower=.*/HandleLidSwitchExternalPower=ignore/' /etc/systemd/logind.conf
-    sudo systemctl restart systemd-logind
     _log_ok "Lid switch configured."
 }
 
