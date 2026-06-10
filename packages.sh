@@ -180,4 +180,6 @@ MISC_PKGS=(
     ollama
     pastel
     spt
+    speech-dispatcher
+    espeak-ng
 )

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
-source config
+source fresh.conf
+source packages.sh
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -338,17 +339,11 @@ setup_daemons() {
     sudo systemctl enable ly@tty1.service cups.socket
     sudo systemctl disable --now getty@tty1.service cups.service
     sudo systemctl disable --now fwupd-refresh.timer fwupd-refresh.service
-    systemctl --user enable --now psd.service pipewire.service pipewire-pulse.service hyprpolkitagent.service rclone-bisync.timer
+    systemctl --user enable --now psd.service pipewire.service pipewire-pulse.service hyprpolkitagent.service rclone-sync.timer
     sudo systemctl stop wpa_supplicant.service
     sudo systemctl mask wpa_supplicant.service systemd-tpm2-setup-early.service systemd-tpm2-setup.service
     systemctl --user mask at-spi-dbus-bus.service
     _log_ok "Daemons enabled."
-}
-
-configure_lid_switch() {
-    _log_info "Configuring lid switch behavior..."
-    sudo sed -i 's/^.*HandleLidSwitchExternalPower=.*/HandleLidSwitchExternalPower=ignore/' /etc/systemd/logind.conf
-    _log_ok "Lid switch configured."
 }
 
 cleanup() {
