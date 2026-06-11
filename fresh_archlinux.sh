@@ -298,17 +298,8 @@ setup_daemons() {
 
 cleanup() {
     _log_info "Cleaning up..."
-    sudo pacman -Scc --noconfirm
+    "$HOME/.local/bin/sysclean"
     _log_ok "System cleanup complete."
-
-    ORPHANS=$(pacman -Qdtq || true)
-    if [ -n "$ORPHANS" ]; then
-        paru -Rns --noconfirm $ORPHANS
-        _log_ok "Orphans removed."
-    else
-        _log_info "No orphan packages to remove."
-    fi
-    sudo journalctl --vacuum-time=2weeks
 }
 
 finished_message() {
