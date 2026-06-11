@@ -1,8 +1,8 @@
-PREREQ_PKGS=(
+export PREREQ_PKGS=(
     openssl-1.1
 )
 
-SYSTEM_PKGS=(
+export SYSTEM_PKGS=(
     amd-ucode
     linux-headers
     ca-certificates
@@ -15,7 +15,7 @@ SYSTEM_PKGS=(
     lenovolegionlinux-dkms-git
 )
 
-NVIDIA_PKGS=(
+export NVIDIA_PKGS=(
     cuda
     cudnn
     nvidia-container-toolkit
@@ -29,13 +29,13 @@ NVIDIA_PKGS=(
     lib32-nvidia-utils
 )
 
-FINGERPRINT_PKGS=(
+export FINGERPRINT_PKGS=(
     fprintd
     libfprint-tod
     libfprint-2-tod1-elan
 )
 
-HYPRLAND_PKGS=(
+export HYPRLAND_PKGS=(
     hyprland
     hyprcursor
     hypridle
@@ -51,7 +51,9 @@ HYPRLAND_PKGS=(
     xdg-desktop-portal-gtk
     xdg-desktop-portal-hyprland
     qt5-wayland
+    qt5ct
     qt6-wayland
+    qt6ct
     waybar
     rofi
     rofi-emoji
@@ -62,7 +64,7 @@ HYPRLAND_PKGS=(
     mako
 )
 
-AUDIO_PKGS=(
+export AUDIO_PKGS=(
     pipewire
     pipewire-alsa
     pipewire-audio
@@ -77,7 +79,7 @@ AUDIO_PKGS=(
     pwvucontrol
 )
 
-APP_PKGS=(
+export APP_PKGS=(
     zen-browser-bin
     spotify
     visual-studio-code-bin
@@ -107,7 +109,7 @@ APP_PKGS=(
     discord
 )
 
-CLI_PKGS=(
+export CLI_PKGS=(
     fwupd
     zip
     unzip
@@ -156,7 +158,7 @@ CLI_PKGS=(
     uv
 )
 
-THEME_PKGS=(
+export THEME_PKGS=(
     ttf-jetbrains-mono-nerd
     papirus-icon-theme
     bibata-cursor-git
@@ -167,7 +169,7 @@ THEME_PKGS=(
     sound-theme-freedesktop
 )
 
-MISC_PKGS=(
+export MISC_PKGS=(
     asciiquarium
     baobab
     bluetui
@@ -177,7 +179,7 @@ MISC_PKGS=(
     impala
     jre-openjdk
     lavat-git
-    ollama
+    ollama-cuda
     pastel
     spt
     speech-dispatcher
