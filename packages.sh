@@ -110,6 +110,7 @@ export APP_PKGS=(
 )
 
 export CLI_PKGS=(
+    pass
     fwupd
     zip
     unzip
