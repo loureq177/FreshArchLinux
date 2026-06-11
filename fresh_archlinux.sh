@@ -16,21 +16,18 @@ main() {
     check_user
     welcome_message
     mount_external_home
-    set_microphone_volume
     install_rustup
     install_and_setup_paru
     install_packages
     configure_firewall
-    # fix_brightness_nvidia
+    fix_brightness_nvidia
     fix_keyboard_lofree
-    # configure_base_boot_params
-    set_systemd_boot_sleep
+    configure_base_boot_params
     change_shell
-    configure_environment
     configure_uki_preset
+    sudo mkinitcpio -P
     setup_dotfiles
     setup_daemons
-    configure_lid_switch
     cleanup
     finished_message
 }
@@ -70,7 +67,7 @@ welcome_message() {
     echo " 4. Configure Early KMS, Nvidia params & NetworkManager"
     echo " 5. Tweak systemd-boot timeout"
     echo " 6. Change default shell to zsh"
-    echo " 7. Setup dotfiles & Bat Cache"
+    echo " 7. Setup dotfiles"
     echo " 8. Enable Daemons (UFW, Pipewire)"
     echo " 9. Clean up"
     echo -e "${BLUE}===================${NC}\n"
@@ -109,11 +106,6 @@ mount_external_home() {
         sudo chmod 700 /home/"$USER"
     fi
     _log_ok "Home drive ready."
-}
-
-set_microphone_volume() {
-    _log_info "Setting microphone volume..."
-    wpctl set-volume @DEFAULT_AUDIO_SOURCE@ $MICROPHONE_VOLUME && _log_ok "Microphone set to 30%" || _log_warn "Could not set volume"
 }
 
 install_rustup() {
@@ -198,34 +190,33 @@ _add_kernel_params() {
     _log_ok "Updated parameters in: $cmdline_file"
 }
 
-# fix_brightness_nvidia() {
-#     _log_info "Configuring Native Hybrid Early KMS and boot parameters..."
-#     local config_file="/etc/mkinitcpio.conf"
-#     local required_modules=("amdgpu" "nvidia" "nvidia_modeset" "nvidia_uvm" "nvidia_drm")
-#     local current_modules
-#
-#     current_modules=$(grep -E "^MODULES=\(" "$config_file" | sed -E 's/MODULES=\((.*)\)/\1/')
-#
-#     for mod in "${required_modules[@]}"; do
-#         if [[ ! " $current_modules " =~ " $mod " ]]; then
-#             current_modules="$current_modules $mod"
-#         fi
-#     done
-#
-#     current_modules=$(echo "$current_modules" | tr -s ' ' | sed 's/^ //;s/ $//')
-#     sudo sed -i -E "s|^MODULES=\(.*\)|MODULES=($current_modules)|" "$config_file"
-#     _log_ok "Updated MODULES in $config_file to: ($current_modules)"
-#
-#     _add_kernel_params ""
-#     _log_info "Rebuilding initramfs..."
-#     sudo mkinitcpio -P
-#     _log_ok "Initramfs rebuilt successfully."
-# }
+fix_brightness_nvidia() {
+    _log_info "Configuring Native Hybrid Early KMS and boot parameters..."
+    local config_file="/etc/mkinitcpio.conf"
+    local required_modules=("amdgpu" "nvidia" "nvidia_modeset" "nvidia_uvm" "nvidia_drm")
+    local current_modules
 
-# configure_base_boot_params() {
-#     _log_info "Configuring base boot parameters (performance, power, debug)..."
-#     _add_kernel_params ""
-# }
+    current_modules=$(grep -oP '^MODULES=\(\K[^)]*' "$config_file")
+    for mod in "${required_modules[@]}"; do
+        if ! echo "$current_modules" | grep -qw "$mod"; then
+            current_modules="$current_modules $mod"
+        fi
+    done
+
+    current_modules=$(echo "$current_modules" | tr -s ' ' | sed 's/^ //;s/ $//')
+    sudo sed -i -E "s|^MODULES=\(.*\)|MODULES=($current_modules)|" "$config_file"
+    _log_ok "Updated MODULES in $config_file to: ($current_modules)"
+
+    _add_kernel_params "acpi_backlight=native video.brightness_switch_enabled=0 amdgpu.dcfeaturemask=0x8 amdgpu.abmlevel=0 nvidia-drm.modeset=1 nvidia-drm.fbdev=1 i2c_hid.polling_mode=1"
+    _log_info "Rebuilding initramfs..."
+    sudo mkinitcpio -P
+    _log_ok "Initramfs rebuilt successfully."
+}
+
+configure_base_boot_params() {
+    _log_info "Configuring base boot parameters (performance, power)..."
+    _add_kernel_params "mem_sleep_default=deep quiet loglevel=3 nowatchdog amd_pstate=active"
+}
 
 fix_keyboard_lofree() {
     _log_info "Fixing Lofree keyboard (Function keys)..."
@@ -236,22 +227,6 @@ fix_keyboard_lofree() {
         _log_warn "hid_apple module not loaded. Is the keyboard connected?"
     fi
     _add_kernel_params "hid_apple.fnmode=2"
-}
-
-set_systemd_boot_sleep() {
-    local loader_conf="/boot/loader/loader.conf"
-    _log_info "Configuring systemd-boot timeout..."
-
-    if sudo test -f "$loader_conf"; then
-        if sudo grep -q "^timeout" "$loader_conf"; then
-            sudo sed -i "s/^timeout.*/timeout 0/" "$loader_conf"
-        else
-            echo "timeout 0" | sudo tee -a "$loader_conf" >/dev/null
-        fi
-        _log_ok "Updated timeout to 0s in $loader_conf"
-    else
-        _log_warn "Could not find $loader_conf. Is systemd-boot installed?"
-    fi
 }
 
 configure_firewall() {
@@ -274,24 +249,6 @@ change_shell() {
     else
         _log_info "Zsh is already the default shell."
     fi
-}
-
-configure_environment() {
-    _log_info "Configuring global environment variables for Nvidia on Wayland..."
-    local env_file="/etc/environment"
-    local vars=(
-        "GBM_BACKEND=nvidia-drm"
-        "__GLX_VENDOR_LIBRARY_NAME=nvidia"
-        "LIBVA_DRIVER_NAME=nvidia"
-        "WLR_NO_HARDWARE_CURSORS=1"
-    )
-
-    for var in "${vars[@]}"; do
-        if ! grep -q "^$var" "$env_file"; then
-            echo "$var" | sudo tee -a "$env_file" >/dev/null
-        fi
-    done
-    _log_ok "Environment variables injected to $env_file"
 }
 
 configure_uki_preset() {
@@ -325,20 +282,14 @@ setup_dotfiles() {
     chmod +x ./install.sh
     ./install.sh
     _log_ok "Dotfiles installed."
-
-    if command -v bat &>/dev/null; then
-        _log_info "Building bat cache for custom themes..."
-        bat cache --build >/dev/null 2>&1 || _log_warn "Failed to build bat cache."
-        _log_ok "Bat cache rebuilt."
-    fi
 }
 
 setup_daemons() {
     _log_info "Enabling system daemons..."
+    sudo systemctl disable --now fwupd-refresh.timer fwupd-refresh.service
     sudo systemctl enable --now ufw.service podman.socket NetworkManager.service
     sudo systemctl enable ly@tty1.service cups.socket
     sudo systemctl disable --now getty@tty1.service cups.service
-    sudo systemctl disable --now fwupd-refresh.timer fwupd-refresh.service
     systemctl --user enable --now psd.service pipewire.service pipewire-pulse.service hyprpolkitagent.service rclone-sync.timer
     sudo systemctl stop wpa_supplicant.service
     sudo systemctl mask wpa_supplicant.service systemd-tpm2-setup-early.service systemd-tpm2-setup.service
