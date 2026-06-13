@@ -12,10 +12,9 @@ export SYSTEM_PKGS=(
     ufw
     zram-generator
     libcamera
-    lenovolegionlinux-dkms-git
 )
 
-export NVIDIA_PKGS=(
+export GPU_PKGS=(
     cuda
     cudnn
     nvidia-container-toolkit
@@ -45,7 +44,6 @@ export HYPRLAND_PKGS=(
     hyprpolkitagent
     hyprsunset
     hyprshutdown
-    hyprmod
     ly
     xdg-desktop-portal
     xdg-desktop-portal-gtk
@@ -80,48 +78,25 @@ export AUDIO_PKGS=(
 )
 
 export APP_PKGS=(
-    zen-browser-bin
-    spotify
     visual-studio-code-bin
-    libreoffice-fresh
-    freecad
-    prusa-slicer
-    arduino-cli
     neovim
     ghostty
     nautilus
-    loupe
-    papers
-    showtime
-    gnome-text-editor
-    gnome-calculator
-    gnome-clocks
-    gnome-logs
     yt-dlp
-    gnome-mahjongg
     opencode
     steam
-    mangohud
-    lib32-mangohud
-    gamemode
-    lib32-gamemode
-    snapshot
-    discord
 )
 
 export CLI_PKGS=(
-    pass
+    7zip
     fwupd
     zip
     unzip
+    flatpak
     bun
-    gcc
-    7zip
     bat
     btop
-    bun
     cmatrix
-    distrobox
     eza
     fastfetch
     fd
@@ -150,7 +125,6 @@ export CLI_PKGS=(
     resvg
     ruff
     satty
-    thokr
     zsh
     zsh-autosuggestions
     zsh-fast-syntax-highlighting
@@ -179,10 +153,10 @@ export MISC_PKGS=(
     gvfs-mtp
     impala
     jre-openjdk
-    lavat-git
     ollama-cuda
     pastel
-    spt
     speech-dispatcher
     espeak-ng
+    gnome-keyring
+    seahorse
 )
