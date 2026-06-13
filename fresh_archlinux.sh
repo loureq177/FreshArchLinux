@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
-source fresh.conf
-source packages.sh
+source user.conf
+source packages_aur.sh
+source packages_pacman.sh
+source packages_flatpak.sh
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -10,6 +12,9 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+LOG_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/arch-setup.log"
+mkdir -p "$(dirname "$LOG_FILE")"
+umask 077
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 main() {
@@ -19,6 +24,7 @@ main() {
     install_rustup
     install_and_setup_paru
     install_packages
+    install_flatpaks
     configure_firewall
     fix_brightness_nvidia
     fix_keyboard_lofree
@@ -28,6 +34,8 @@ main() {
     sudo mkinitcpio -P
     setup_dotfiles
     setup_daemons
+    configure_pam_keyring
+    set_microphone_volume
     cleanup
     finished_message
 }
@@ -38,20 +46,24 @@ check_user() {
         exit 1
     fi
     sudo -v
-    while true; do
-        sudo -n true
-        sleep 60
-        kill -0 "$$" || exit
-    done 2>/dev/null &
+    sudo_keepalive() {
+        while true; do
+            sudo -n true
+            sleep 60
+            kill -0 "$$" 2>/dev/null || exit
+        done
+    }
+    sudo_keepalive &
+    KEEPALIVE_PID=$!
+    trap 'kill $KEEPALIVE_PID 2>/dev/null' EXIT
 }
 
-LINE_1="    ____               __        ___            __      __                    "
-LINE_2="   / __/_______  _____/ /_      /   |  ________/ /___  / /   ( )___  __  ___  __"
-LINE_3="  / /_/ ___/ _ \/ ___/ __ \    / /| | / ___/ ___/ __ \/ /   / / __ \/ / / / |/_/"
-LINE_4=" / __/ /  /  __(__  ) / / /   / ___ |/ /  / /__/ / / / /___/ / / / / /_/ />  <  "
-LINE_5="/_/ /_/   \___/____/_/ /_/   /_/  |_/_/   \___/_/ /_/_____/_/_/ /_/\__,_/_/|_|  "
-
 welcome_message() {
+    local LINE_1="    ____               __        ___            __      __                    "
+    local LINE_2="   / __/_______  _____/ /_      /   |  ________/ /___  / /   ( )___  __  ___  __"
+    local LINE_3="  / /_/ ___/ _ \/ ___/ __ \    / /| | / ___/ ___/ __ \/ /   / / __ \/ / / / |/_/"
+    local LINE_4=" / __/ /  /  __(__  ) / / /   / ___ |/ /  / /__/ / / / /___/ / / / / /_/ />  <  "
+    local LINE_5="/_/ /_/   \___/____/_/ /_/   /_/  |_/_/   \___/_/ /_/_____/_/_/ /_/\__,_/_/|_|  "
     clear
     printf "\033[38;2;94;189;230m%s\033[0m\n" "$LINE_1"
     printf "\033[38;2;23;147;209m%s\033[0m\n" "$LINE_2"
@@ -90,7 +102,7 @@ mount_external_home() {
     fi
 
     if ! grep -q "$UUID" /etc/fstab; then
-        if ! grep -q "^[^#]*[[:space:]]/home[[:space:]]" /etc/fstab; then
+        if ! awk '$2 == "/home" {found=1; exit} END {exit !found}' /etc/fstab; then
             echo "UUID=$UUID /home ext4 defaults 0 2" | sudo tee -a /etc/fstab >/dev/null
             _log_ok "Added $UUID to /etc/fstab"
         else
@@ -99,8 +111,8 @@ mount_external_home() {
         fi
     fi
 
-    sudo mount -a
-    if [ "$(stat -c '%U' /home/"$USER" 2>/dev/null)" != "$USER" ]; then
+    sudo mount /home
+    if [ -d "/home/$USER" ] && [ "$(stat -c '%U' /home/"$USER" 2>/dev/null)" != "$USER" ]; then
         sudo chown -R "$USER":"$USER" /home/"$USER"
         sudo chmod 700 /home/"$USER"
     fi
@@ -150,18 +162,22 @@ install_packages() {
     _log_info "Installing essential applications..."
     _install_group "Prerequisites" "${PREREQ_PKGS[@]}"
 
-    local all_pkgs=(
-        "${SYSTEM_PKGS[@]}"
-        "${NVIDIA_PKGS[@]}"
-        "${FINGERPRINT_PKGS[@]}"
-        "${HYPRLAND_PKGS[@]}"
-        "${AUDIO_PKGS[@]}"
-        "${APP_PKGS[@]}"
-        "${CLI_PKGS[@]}"
-        "${THEME_PKGS[@]}"
-        "${MISC_PKGS[@]}"
-    )
-    _install_group "All packages" "${all_pkgs[@]}"
+    _install_group "System" "${SYSTEM_PKGS[@]}"
+    _install_group "GPU" "${GPU_PKGS[@]}"
+    _install_group "Fingerprint" "${FINGERPRINT_PKGS[@]}"
+    _install_group "Hyprland" "${HYPRLAND_PKGS[@]}"
+    _install_group "Audio" "${AUDIO_PKGS[@]}"
+    _install_group "Apps" "${APP_PKGS[@]}"
+    _install_group "CLI" "${CLI_PKGS[@]}"
+    _install_group "Theme" "${THEME_PKGS[@]}"
+    _install_group "Misc" "${MISC_PKGS[@]}"
+}
+
+install_flatpaks() {
+    _log_info "Configuring Flatpak and installing applications for user..."
+    flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install --user -y flathub "${FLATPAK_APPS[@]}"
+    _log_ok "Flatpaks installed for $USER."
 }
 
 _add_kernel_params() {
@@ -182,7 +198,9 @@ _add_kernel_params() {
 
     for param in $params; do
         local key="${param%%=*}"
-        new_cmdline=$(echo "$new_cmdline" | sed -E "s/ *$key(=[^ ]+)?//g")
+        local escaped_key
+        escaped_key=$(printf '%s\n' "$key" | sed 's/[][\.*^$+?{}|()]/\\&/g')
+        new_cmdline=$(echo "$new_cmdline" | sed -E "s/ *${escaped_key}(=[^ ]+)?//g")
     done
 
     echo "$new_cmdline $params" | tr -s ' ' | sudo tee "$cmdline_file" >/dev/null
@@ -207,9 +225,6 @@ fix_brightness_nvidia() {
     _log_ok "Updated MODULES in $config_file to: ($current_modules)"
 
     _add_kernel_params "acpi_backlight=native video.brightness_switch_enabled=0 amdgpu.dcfeaturemask=0x8 amdgpu.abmlevel=0 nvidia-drm.modeset=1 nvidia-drm.fbdev=1 i2c_hid.polling_mode=1"
-    _log_info "Rebuilding initramfs..."
-    sudo mkinitcpio -P
-    _log_ok "Initramfs rebuilt successfully."
 }
 
 configure_base_boot_params() {
@@ -237,10 +252,12 @@ configure_firewall() {
 }
 
 change_shell() {
-    if [ "$SHELL" != "/usr/bin/zsh" ]; then
+    local zsh_path
+    zsh_path=$(command -v zsh)
+    if [ "$SHELL" != "$zsh_path" ]; then
         _log_info "Changing default shell to zsh for $USER..."
-        if command -v zsh &>/dev/null; then
-            sudo chsh -s "$(which zsh)" "$USER"
+        if [ -n "$zsh_path" ]; then
+            sudo chsh -s "$zsh_path" "$USER"
             _log_ok "Default shell changed to zsh."
         else
             _log_warn "Zsh is not installed. Skipping shell change."
@@ -288,7 +305,8 @@ setup_daemons() {
     sudo systemctl disable --now fwupd-refresh.timer fwupd-refresh.service
     sudo systemctl enable --now ufw.service podman.socket NetworkManager.service
     sudo systemctl enable ly@tty1.service cups.socket
-    sudo systemctl disable --now getty@tty1.service cups.service
+    sudo systemctl disable --now cups.service
+    sudo systemctl mask getty@.service
     systemctl --user enable --now psd.service pipewire.service pipewire-pulse.service hyprpolkitagent.service rclone-sync.timer
     sudo systemctl stop wpa_supplicant.service
     sudo systemctl mask wpa_supplicant.service systemd-tpm2-setup-early.service systemd-tpm2-setup.service
@@ -296,10 +314,27 @@ setup_daemons() {
     _log_ok "Daemons enabled."
 }
 
+set_microphone_volume() {
+    if command -v wpctl &>/dev/null && [ -n "${MICROPHONE_VOLUME:-}" ]; then
+        local mic_id
+        mic_id=$(wpctl status 2>/dev/null | grep -i "mic" | head -1 | grep -oP '\d+')
+        if [ -n "$mic_id" ]; then
+            wpctl set-volume "$mic_id" "$MICROPHONE_VOLUME"
+            _log_ok "Microphone volume set to $MICROPHONE_VOLUME"
+        else
+            _log_warn "Microphone not found. Skipping volume setting."
+        fi
+    fi
+}
+
 cleanup() {
     _log_info "Cleaning up..."
-    "$HOME/.local/bin/sysclean"
-    _log_ok "System cleanup complete."
+    if [ -x "$HOME/.local/bin/sysclean" ]; then
+        "$HOME/.local/bin/sysclean"
+        _log_ok "System cleanup complete."
+    else
+        _log_warn "sysclean not found at $HOME/.local/bin/sysclean — skipping."
+    fi
 }
 
 finished_message() {
@@ -315,4 +350,4 @@ finished_message() {
     echo ""
 }
 
-main "$@"
+main
