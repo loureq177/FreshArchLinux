@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
-source packages.sh
-source flatpaks.sh
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -10,30 +8,44 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/arch-setup.log"
 mkdir -p "$(dirname "$LOG_FILE")"
-umask 077
+(
+    umask 077
+    mkdir -p "$(dirname "$LOG_FILE")"
+)
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 main() {
     check_user
     welcome_message
     mount_external_home
+
+    # -- Installations ------------
     install_rustup
     install_and_setup_paru
     install_packages
     install_flatpaks
-    configure_firewall
+
+    # -- Fixes --------------------
     fix_brightness_nvidia
-    fix_keyboard_lofree
-    configure_base_boot_params
-    change_shell
+    fix_fn_keys_lofree
+    fix_touchpad
+
+    # -- Optimizations ------------
+    optimize_base_boot_params
+    optimize_mkinitcpio_hooks
+    optimize_bootloader_timeout
+
+    # --Configurations ------------
+    configure_default_shell
     configure_uki_preset
+    configure_dotfiles
+    configure_daemons
+    configure_firewall
+
     sudo mkinitcpio -P
-    setup_dotfiles
-    setup_daemons
-    configure_pam_keyring
-    set_microphone_volume
     cleanup
     finished_message
 }
@@ -110,7 +122,10 @@ mount_external_home() {
         fi
     fi
 
-    sudo mount /home
+    mountpoint -q /home && {
+        _log_info "Home already mounted."
+        return 0
+    }
     if [ -d "/home/$USER" ] && [ "$(stat -c '%U' /home/"$USER" 2>/dev/null)" != "$USER" ]; then
         sudo chown -R "$USER":"$USER" /home/"$USER"
         sudo chmod 700 /home/"$USER"
@@ -146,6 +161,16 @@ install_and_setup_paru() {
     paru -Syu --devel --noconfirm
 }
 
+install_packages() {
+    source "$SCRIPT_DIR/packages.sh"
+    _log_info "Installing essential applications..."
+
+    for label in "${PKG_GROUPS[@]}"; do
+        declare -n arr="${label}_PKGS"
+        _install_group "$label" "${arr[@]}"
+    done
+}
+
 _install_group() {
     local label="$1"
     shift
@@ -157,53 +182,15 @@ _install_group() {
     _log_ok "[$label] done."
 }
 
-install_packages() {
-    _log_info "Installing essential applications..."
-    _install_group "System" "${SYSTEM_PKGS[@]}"
-    _install_group "GPU" "${GPU_PKGS[@]}"
-    _install_group "Hyprland" "${HYPRLAND_PKGS[@]}"
-    _install_group "Audio" "${AUDIO_PKGS[@]}"
-    _install_group "Apps" "${APP_PKGS[@]}"
-    _install_group "CLI" "${CLI_PKGS[@]}"
-    _install_group "Theme" "${THEME_PKGS[@]}"
-    _install_group "Misc" "${MISC_PKGS[@]}"
-    _install_group "Gnome" "${GNOME_PKGS[@]}"
-    _install_group "AUR" "${AUR_PKGS[@]}"
-}
-
 install_flatpaks() {
+    source "$SCRIPT_DIR/flatpaks.sh"
     _log_info "Configuring Flatpak and installing applications for user..."
     flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-    flatpak install --user -y flathub "${FLATPAK_APPS[@]}"
+    flatpak install --user -y --or-update flathub "${FLATPAK_APPS[@]}"
     _log_ok "Flatpaks installed for $USER."
 }
 
-_add_kernel_params() {
-    local params="$*"
-    local cmdline_file="/etc/kernel/cmdline"
-
-    if [ ! -f "$cmdline_file" ]; then
-        _log_error "$cmdline_file does not exist!"
-        return 1
-    fi
-
-    _log_info "Adding boot parameters: $params"
-    sleep 2
-
-    local current_cmdline
-    current_cmdline=$(cat "$cmdline_file")
-    local new_cmdline="$current_cmdline"
-
-    for param in $params; do
-        local key="${param%%=*}"
-        local escaped_key
-        escaped_key=$(printf '%s\n' "$key" | sed 's/[][\.*^$+?{}|()]/\\&/g')
-        new_cmdline=$(echo "$new_cmdline" | sed -E "s/ *${escaped_key}(=[^ ]+)?//g")
-    done
-
-    echo "$new_cmdline $params" | tr -s ' ' | sudo tee "$cmdline_file" >/dev/null
-    _log_ok "Updated parameters in: $cmdline_file"
-}
+# -- Fixes -------------------------------------------------------------------
 
 fix_brightness_nvidia() {
     _log_info "Configuring Native Hybrid Early KMS and boot parameters..."
@@ -222,16 +209,21 @@ fix_brightness_nvidia() {
     sudo sed -i -E "s|^MODULES=\(.*\)|MODULES=($current_modules)|" "$config_file"
     _log_ok "Updated MODULES in $config_file to: ($current_modules)"
 
-    _add_kernel_params "acpi_backlight=native video.brightness_switch_enabled=0 amdgpu.dcfeaturemask=0x8 amdgpu.abmlevel=0 nvidia-drm.modeset=1 nvidia-drm.fbdev=1 i2c_hid.polling_mode=1"
+    local params=(
+        acpi_backlight=native
+        video.brightness_switch_enabled=0
+        amdgpu.dcfeaturemask=0x8
+        amdgpu.abmlevel=0
+        nvidia-drm.modeset=1
+        nvidia-drm.fbdev=1
+        i2c_hid.polling_mode=1
+    )
+
+    _add_kernel_params "${params[@]}"
 }
 
-configure_base_boot_params() {
-    _log_info "Configuring base boot parameters (performance, power)..."
-    _add_kernel_params "mem_sleep_default=deep quiet loglevel=3 nowatchdog amd_pstate=active"
-}
-
-fix_keyboard_lofree() {
-    _log_info "Fixing Lofree keyboard (Function keys)..."
+fix_fn_keys_lofree() {
+    _log_info "Fixing Lofree function keys..."
     if [ -d "/sys/module/hid_apple" ]; then
         echo 2 | sudo tee /sys/module/hid_apple/parameters/fnmode >/dev/null
         _log_ok "hid_apple fnmode set to 2 (runtime)"
@@ -241,15 +233,91 @@ fix_keyboard_lofree() {
     _add_kernel_params "hid_apple.fnmode=2"
 }
 
-configure_firewall() {
-    _log_info "Configuring firewall"
-    sudo ufw default deny incoming
-    sudo ufw default allow outgoing
-    sudo ufw --force enable
-    _log_ok "Firewall configured properly"
+fix_touchpad() {
+    _log_info "Fixing Lenovo Legion touchpad (i8042 controller)..."
+    _add_kernel_params "i8042.nopnp"
+    _log_ok "Touchpad boot parameters applied."
 }
 
-change_shell() {
+_add_kernel_params() {
+    local -a params=("$@")
+    local cmdline_file="/etc/kernel/cmdline"
+
+    if [ ! -f "$cmdline_file" ]; then
+        _log_error "$cmdline_file does not exist!"
+        return 1
+    fi
+
+    _log_info "Adding boot parameters: ${params[*]}"
+
+    local current_cmdline
+    current_cmdline=$(cat "$cmdline_file")
+    local new_cmdline="$current_cmdline"
+
+    for param in "${params[@]}"; do
+        local key="${param%%=*}"
+        local escaped_key
+        escaped_key=$(printf '%s\n' "$key" | sed 's/[][\.*^$+?{}|()]/\\&/g')
+        new_cmdline=$(echo "$new_cmdline" | sed -E "s/ *${escaped_key}(=[^ ]+)?//g")
+    done
+
+    echo "$new_cmdline ${params[*]}" | tr -s ' ' | sudo tee "$cmdline_file" >/dev/null
+    _log_ok "Updated parameters in: $cmdline_file"
+}
+
+# -- Optimizations ----------------------------------------------------------
+
+optimize_base_boot_params() {
+    local params=(
+        mem_sleep_default=deep
+        quiet
+        loglevel=3
+        nowatchdog        # turns off watchdog (+battery life)
+        amd_pstate=active # newer energy management ryzen driver (+battery life)
+    )
+    _log_info "Configuring base boot parameters (performance, power)..."
+    _add_kernel_params "${params[*]}"
+}
+
+optimize_mkinitcpio_hooks() {
+    local config_file="/etc/mkinitcpio.conf"
+    local current_hooks
+
+    current_hooks=$(grep -oP '^HOOKS=\(\K[^)]*' "$config_file")
+
+    if echo "$current_hooks" | grep -qw "udev"; then
+        current_hooks=$(echo "$current_hooks" | sed -e 's/\budev\b/systemd/' -e 's/\bkeymap\b/sd-vconsole/' -e 's/\bconsolefont\b//' | tr -s ' ' | sed 's/ $//')
+
+        sudo sed -i -E "s|^HOOKS=\(.*\)|HOOKS=($current_hooks)|" "$config_file"
+        _log_ok "Updated HOOKS to: ($current_hooks)"
+
+        _log_info "Rebuilding initramfs..."
+        sudo mkinitcpio -P
+    else
+        _log_ok "systemd hook already present in $config_file."
+    fi
+}
+
+optimize_bootloader_timeout() {
+    local loader_file="/boot/loader/loader.conf"
+
+    if [ ! -f "$loader_file" ]; then
+        _log_error "File $loader_file not found. Systemd-boot not detected."
+        return 1
+    fi
+
+    if grep -q "^timeout" "$loader_file"; then
+        sudo sed -i -E "s/^timeout.*/timeout 0/" "$loader_file"
+    else
+        echo "timeout 0" | sudo tee -a "$loader_file" >/dev/null
+    fi
+
+    _log_ok "Bootloader timeout set to 0 in $loader_file."
+}
+
+# -- Configuration -----------------------------------------------------------
+
+configure_default_shell() {
     local zsh_path
     zsh_path=$(command -v zsh)
     if [ "$SHELL" != "$zsh_path" ]; then
@@ -267,9 +335,7 @@ change_shell() {
 
 configure_uki_preset() {
     _log_info "Configuring UKI presets..."
-
     sudo mkdir -p /boot/EFI/Linux
-
     sudo tee /etc/mkinitcpio.d/linux.preset >/dev/null <<EOF
 ALL_config="/etc/mkinitcpio.conf"
 ALL_kver="/boot/vmlinuz-linux"
@@ -283,46 +349,83 @@ EOF
     _log_ok "UKI preset configured."
 }
 
-setup_dotfiles() {
+configure_dotfiles() {
     _log_info "Downloading and linking dotfiles..."
     if [ ! -d "$HOME/.files" ]; then
-        git clone https://github.com/loureq176/dotfiles.git ~/.files
+        git clone https://github.com/loureq177/.files.git ~/.files
     else
         _log_info "Dotfiles directory already exists. Pulling latest changes..."
         git -C ~/.files pull || _log_warn "Failed to pull latest dotfiles updates."
     fi
 
-    cd ~/.files || exit
+    cd ~/.files || {
+        _log_error "Cannot enter ~/.files"
+        return 1
+    }
     chmod +x ./install.sh
     ./install.sh
     _log_ok "Dotfiles installed."
 }
 
-setup_daemons() {
+configure_daemons() {
+    local sys_disable=(
+        fwupd-refresh.timer   # for firmware updates
+        fwupd-refresh.service # for firmware updates
+        cups.service          # for printing
+        avahi-daemon.service  # for printing
+        pcscd.service         # for YubiKey support
+    )
+
+    local sys_enable=(
+        ly@tty1.service
+        podman.socket
+        ufw.service            # firewall
+        NetworkManager.service # do i need this?
+        bluetooth.service      # do i need this?
+        cups.socket            # for printing
+        avahi-daemon.socket    # for printing
+        pcscd.socket           # for YubiKey support
+    )
+
+    local sys_mask=(
+        getty@tty1.service                 # tty1 is managed by ly dm
+        systemd-tpm2-setup-early.service   # encryption support
+        systemd-tpm2-setup.service         # encryption support
+        watchdog.service                   # for battery saving
+        wpa_supplicant.service             # default nm backend is iwd
+        NetworkManager-wait-online.service # don't wait for wifi connect on startup
+    )
+
+    local usr_enable=(
+        psd.service             # profile-sync-daemon (puts browser profile to RAM)
+        pipewire.service        # audio
+        pipewire-pulse.service  # audio
+        hyprpolkitagent.service # for password popups
+        rclone-sync.timer       # my own cloud sync daemon
+    )
+
+    local usr_mask=(
+        at-spi-dbus-bus.service
+    )
+
     _log_info "Enabling system daemons..."
-    sudo systemctl disable --now fwupd-refresh.timer fwupd-refresh.service
-    sudo systemctl enable --now ufw.service podman.socket NetworkManager.service
-    sudo systemctl enable ly@tty1.service cups.socket
-    sudo systemctl disable --now cups.service
-    sudo systemctl mask getty@.service
-    systemctl --user enable --now psd.service pipewire.service pipewire-pulse.service hyprpolkitagent.service rclone-sync.timer
-    sudo systemctl stop wpa_supplicant.service
-    sudo systemctl mask wpa_supplicant.service systemd-tpm2-setup-early.service systemd-tpm2-setup.service watchdog.service
-    systemctl --user mask at-spi-dbus-bus.service
+
+    sudo systemctl disable "${sys_disable[@]}"
+    sudo systemctl enable "${sys_enable[@]}"
+    sudo systemctl mask "${sys_mask[@]}"
+
+    systemctl --user enable "${usr_enable[@]}"
+    systemctl --user mask "${usr_mask[@]}"
+
     _log_ok "Daemons enabled."
 }
 
-set_microphone_volume() {
-    if command -v wpctl &>/dev/null && [ -n "${MICROPHONE_VOLUME:-}" ]; then
-        local mic_id
-        mic_id=$(wpctl status 2>/dev/null | grep -i "mic" | head -1 | grep -oP '\d+')
-        if [ -n "$mic_id" ]; then
-            wpctl set-volume "$mic_id" "$MICROPHONE_VOLUME"
-            _log_ok "Microphone volume set to $MICROPHONE_VOLUME"
-        else
-            _log_warn "Microphone not found. Skipping volume setting."
-        fi
-    fi
+configure_firewall() {
+    _log_info "Configuring firewall"
+    sudo ufw default deny incoming
+    sudo ufw default allow outgoing
+    sudo ufw --force enable
+    _log_ok "Firewall configured properly"
 }
 
 cleanup() {
