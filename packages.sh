@@ -1,3 +1,5 @@
+export PKG_GROUPS=(SYSTEM GPU HYPRLAND AUDIO GUI CLI TUI THEME MISC GNOME AUR)
+
 export SYSTEM_PKGS=(
     amd-ucode
     linux-headers
@@ -28,7 +30,6 @@ export HYPRLAND_PKGS=(
     hyprcursor
     hypridle
     hyprlock
-    hyprpaper
     hyprpicker
     hyprpolkitagent
     hyprsunset
@@ -48,6 +49,8 @@ export HYPRLAND_PKGS=(
     wl-clipboard
     wtype
     mako
+    swaybg
+    satty
 )
 
 export AUDIO_PKGS=(
@@ -60,20 +63,18 @@ export AUDIO_PKGS=(
     gst-plugins-good
     gst-plugins-bad
     gst-plugins-ugly
-    x264
     sox
 )
 
-export APP_PKGS=(
-    neovim
+export GUI_PKGS=(
     ghostty
-    opencode
     steam
     libreoffice-fresh
     libreoffice-fresh-pl
 )
 
 export CLI_PKGS=(
+    ttyd
     7zip
     fwupd
     zip
@@ -81,7 +82,6 @@ export CLI_PKGS=(
     flatpak
     bun
     bat
-    btop
     cmatrix
     eza
     fastfetch
@@ -92,7 +92,6 @@ export CLI_PKGS=(
     github-cli
     hyperfine
     jq
-    lazygit
     nodejs
     python-pynvim
     python-jupyter-client
@@ -100,7 +99,6 @@ export CLI_PKGS=(
     rclone
     stow
     wget
-    yazi
     zoxide
     man-db
     php
@@ -108,17 +106,26 @@ export CLI_PKGS=(
     profile-sync-daemon
     resvg
     ruff
-    satty
+    starship
     zsh
     zsh-autosuggestions
-    ncdu
     uv
+)
+
+export TUI_PKGS=(
+    neovim
+    opencode
+    bluetui
+    impala
+    ncdu
+    btop
+    yazi
+    lazygit
 )
 
 export THEME_PKGS=(
     ttf-jetbrains-mono-nerd
     papirus-icon-theme
-    starship
     noto-fonts
     noto-fonts-emoji
     noto-fonts-cjk
@@ -127,19 +134,18 @@ export THEME_PKGS=(
 
 export MISC_PKGS=(
     asciiquarium
-    baobab
-    bluetui
     brightnessctl
     espeak-ng
-    impala
     jre-openjdk
     speech-dispatcher
+    x264
 )
 
 export GNOME_PKGS=(
     gnome-calculator
     gnome-clocks
     gnome-keyring
+    baobab
     loupe
     nautilus
     seahorse
@@ -155,4 +161,6 @@ export AUR_PKGS=(
     pwvucontrol
     tlrc
     zsh-fast-syntax-highlighting
+    # this one edoes not work with the new ffmpeg now!!!
+    # wl-screenrec
 )
