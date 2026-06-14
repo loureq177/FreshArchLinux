@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
-source user.conf
-source packages_aur.sh
-source packages_pacman.sh
-source packages_flatpak.sh
+source packages.sh
+source flatpaks.sh
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -94,6 +92,7 @@ _log_warn() { echo -e "${YELLOW}\n[WARN]${NC} $*"; }
 _log_error() { echo -e "${RED}\n[ERROR]${NC} $*"; }
 
 mount_external_home() {
+    local UUID="f49038fe-5540-46a8-82a5-40f6ed890d8d"
     _log_info "Configuring external drive with UUID: $UUID"
 
     if ! blkid -U "$UUID" >/dev/null; then
@@ -160,17 +159,16 @@ _install_group() {
 
 install_packages() {
     _log_info "Installing essential applications..."
-    _install_group "Prerequisites" "${PREREQ_PKGS[@]}"
-
     _install_group "System" "${SYSTEM_PKGS[@]}"
     _install_group "GPU" "${GPU_PKGS[@]}"
-    _install_group "Fingerprint" "${FINGERPRINT_PKGS[@]}"
     _install_group "Hyprland" "${HYPRLAND_PKGS[@]}"
     _install_group "Audio" "${AUDIO_PKGS[@]}"
     _install_group "Apps" "${APP_PKGS[@]}"
     _install_group "CLI" "${CLI_PKGS[@]}"
     _install_group "Theme" "${THEME_PKGS[@]}"
     _install_group "Misc" "${MISC_PKGS[@]}"
+    _install_group "Gnome" "${GNOME_PKGS[@]}"
+    _install_group "AUR" "${AUR_PKGS[@]}"
 }
 
 install_flatpaks() {
@@ -309,7 +307,7 @@ setup_daemons() {
     sudo systemctl mask getty@.service
     systemctl --user enable --now psd.service pipewire.service pipewire-pulse.service hyprpolkitagent.service rclone-sync.timer
     sudo systemctl stop wpa_supplicant.service
-    sudo systemctl mask wpa_supplicant.service systemd-tpm2-setup-early.service systemd-tpm2-setup.service
+    sudo systemctl mask wpa_supplicant.service systemd-tpm2-setup-early.service systemd-tpm2-setup.service watchdog.service
     systemctl --user mask at-spi-dbus-bus.service
     _log_ok "Daemons enabled."
 }
