@@ -133,20 +133,9 @@ mount_external_home() {
     _log_ok "Home drive ready."
 }
 
-install_rustup() {
-    if ! command -v rustup &>/dev/null; then
-        _log_info "Installing Rustup..."
-        sudo pacman -S --needed --noconfirm rustup
-        rustup default stable
-        _log_ok "Rustup installed and default toolchain set to stable."
-    else
-        _log_info "Rustup already installed - skipping."
-    fi
-}
-
 install_and_setup_paru() {
     if ! command -v paru &>/dev/null; then
-        sudo pacman -Syu --needed --noconfirm git base-devel
+        sudo pacman -Syu --needed --noconfirm git base-devel rust
         (
             cd /tmp
             git clone https://aur.archlinux.org/paru.git
