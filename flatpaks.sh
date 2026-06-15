@@ -4,6 +4,6 @@ export FLATPAK_APPS=(
     com.spotify.Client
     com.visualstudio.code
     com.discordapp.Discord
-    org.freecadweb.FreeCAD
+    org.freecad.FreeCAD
     com.prusa3d.PrusaSlicer
 )
