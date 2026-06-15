@@ -265,7 +265,7 @@ optimize_base_boot_params() {
         amd_pstate=active # newer energy management ryzen driver (+battery life)
     )
     _log_info "Configuring base boot parameters (performance, power)..."
-    _add_kernel_params "${params[*]}"
+    _add_kernel_params "${params[@]}"
 }
 
 optimize_mkinitcpio_hooks() {
