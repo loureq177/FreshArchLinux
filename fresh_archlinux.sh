@@ -205,7 +205,6 @@ fix_brightness_nvidia() {
         amdgpu.abmlevel=0
         nvidia-drm.modeset=1
         nvidia-drm.fbdev=1
-        i2c_hid.polling_mode=1
     )
 
     _add_kernel_params "${params[@]}"
@@ -289,26 +288,23 @@ optimize_mkinitcpio_hooks() {
 
 optimize_bootloader_timeout() {
     local loader_file="/boot/loader/loader.conf"
-
-    if [ ! -f "$loader_file" ]; then
-        _log_error "File $loader_file not found. Systemd-boot not detected."
-        return 1
+    if ! sudo bootctl is-installed 2>/dev/null; then
+        _log_warn "systemd-boot not installed — skipping."
+        return 0
     fi
-
-    if grep -q "^timeout" "$loader_file"; then
+    sudo mkdir -p "/boot/loader"
+    if grep -q "^timeout" "$loader_file" 2>/dev/null; then
         sudo sed -i -E "s/^timeout.*/timeout 0/" "$loader_file"
     else
         echo "timeout 0" | sudo tee -a "$loader_file" >/dev/null
     fi
-
     _log_ok "Bootloader timeout set to 0 in $loader_file."
 }
 
 # -- Configuration -----------------------------------------------------------
 
 configure_default_shell() {
-    local zsh_path
-    zsh_path=$(command -v zsh)
+    local zsh_path="/usr/bin/zsh"
     if [ "$SHELL" != "$zsh_path" ]; then
         _log_info "Changing default shell to zsh for $USER..."
         if [ -n "$zsh_path" ]; then
@@ -368,12 +364,13 @@ configure_daemons() {
     local sys_enable=(
         ly@tty1.service
         podman.socket
-        ufw.service            # firewall
-        NetworkManager.service # do i need this?
-        bluetooth.service      # do i need this?
-        cups.socket            # for printing
-        avahi-daemon.socket    # for printing
-        pcscd.socket           # for YubiKey support
+        ufw.service
+        NetworkManager.service
+        bluetooth.service
+        cups.socket         # for printing
+        avahi-daemon.socket # for printing
+        pcscd.socket        # for YubiKey support
+        upower.service
     )
 
     local sys_mask=(
@@ -406,7 +403,7 @@ configure_daemons() {
     systemctl --user enable "${usr_enable[@]}"
     systemctl --user mask "${usr_mask[@]}"
 
-    _log_ok "Daemons enabled."
+    _log_ok "Daemons configured."
 }
 
 configure_firewall() {
