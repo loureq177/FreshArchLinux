@@ -23,7 +23,6 @@ main() {
     mount_external_home
 
     # -- Installations ------------
-    install_rustup
     install_and_setup_paru
     install_packages
     install_flatpaks
@@ -83,14 +82,12 @@ welcome_message() {
     echo -e "\nUser: ${YELLOW}$USER${NC}\n"
 
     echo -e "${BLUE}=== ACTION PLAN ===${NC}"
-    echo " 1. Load configuration"
-    echo " 2. Setup Rustup & Paru"
-    echo " 3. Install packages"
-    echo " 4. Configure Early KMS, Nvidia params & NetworkManager"
-    echo " 5. Change default shell to zsh"
-    echo " 6. Setup dotfiles"
-    echo " 7. Enable Daemons (UFW, Pipewire)"
-    echo " 8. Clean up"
+    echo " 1. Mount external home"
+    echo " 2. Install:    package manager, packages, flatpaks"
+    echo " 4. Fix:        touchpad, nvidia-brightness, lofree fn keys"
+    echo " 5. Optimize:   base_boot_params, mkinitcpio_hooks, bootloader_timeout"
+    echo " 6. Configure:  default shell, UKI (splash screen), dotfiles, daemons, firewall"
+    echo " 7. Clean up"
     echo -e "${BLUE}===================${NC}\n"
 
     echo -e "${RED}Press ENTER to start the setup, or Ctrl+C to abort...${NC}"
@@ -98,9 +95,9 @@ welcome_message() {
     echo -e "\n${GREEN}Here we go! Buckle up...${NC}\n"
 }
 
-_log_info() { echo -e "${BLUE}\n[INFO]${NC} $*"; }
+_log_info() { echo -e "${BLUE}\n[INFO]${NC} $*" && sleep 0.8; }
 _log_ok() { echo -e "${GREEN}\n[OK]${NC} $*"; }
-_log_warn() { echo -e "${YELLOW}\n[WARN]${NC} $*"; }
+_log_warn() { echo -e "${YELLOW}\n[WARN]${NC} $*" && sleep 0.8; }
 _log_error() { echo -e "${RED}\n[ERROR]${NC} $*"; }
 
 mount_external_home() {
