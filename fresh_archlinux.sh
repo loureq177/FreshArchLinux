@@ -69,25 +69,25 @@ check_user() {
 }
 
 welcome_message() {
-    local LINE_1="    ____               __        ___            __      __                    "
-    local LINE_2="   / __/_______  _____/ /_      /   |  ________/ /___  / /   ( )___  __  ___  __"
-    local LINE_3="  / /_/ ___/ _ \/ ___/ __ \    / /| | / ___/ ___/ __ \/ /   / / __ \/ / / / |/_/"
-    local LINE_4=" / __/ /  /  __(__  ) / / /   / ___ |/ /  / /__/ / / / /___/ / / / / /_/ />  <  "
-    local LINE_5="/_/ /_/   \___/____/_/ /_/   /_/  |_/_/   \___/_/ /_/_____/_/_/ /_/\__,_/_/|_|  "
+    L1="    ____               __        ___            __      __                    "
+    L2="   / __/_______  _____/ /_      /   |  ________/ /___  / /   ( )___  __  ___  __"
+    L3="  / /_/ ___/ _ \/ ___/ __ \    / /| | / ___/ ___/ __ \/ /   / / __ \/ / / / |/_/"
+    L4=" / __/ /  /  __(__  ) / / /   / ___ |/ /  / /__/ / / / /___/ / / / / /_/ />  <  "
+    L5="/_/ /_/   \___/____/_/ /_/   /_/  |_/_/   \___/_/ /_/_____/_/_/ /_/\__,_/_/|_|  "
     clear
-    printf "\033[38;2;94;189;230m%s\033[0m\n" "$LINE_1"
-    printf "\033[38;2;23;147;209m%s\033[0m\n" "$LINE_2"
-    printf "\033[38;2;18;122;173m%s\033[0m\n" "$LINE_3"
-    printf "\033[38;2;14;95;135m%s\033[0m\n" "$LINE_4"
-    printf "\033[38;2;9;66;94m%s\033[0m\n" "$LINE_5"
+    printf "\033[38;2;94;189;230m%s\033[0m\n" "$L1"
+    printf "\033[38;2;23;147;209m%s\033[0m\n" "$L2"
+    printf "\033[38;2;18;122;173m%s\033[0m\n" "$L3"
+    printf "\033[38;2;14;95;135m%s\033[0m\n" "$L4"
+    printf "\033[38;2;9;66;94m%s\033[0m\n" "$L5"
     echo -e "\nUser: ${YELLOW}$USER${NC}\n"
 
     echo -e "${BLUE}=== ACTION PLAN ===${NC}"
     echo " 1. Mount external home"
-    echo " 2. Install:    package manager, packages, flatpaks"
-    echo " 4. Fix:        touchpad, nvidia-brightness, lofree fn keys"
-    echo " 5. Optimize:   base_boot_params, mkinitcpio_hooks, bootloader_timeout"
-    echo " 6. Configure:  default shell, UKI (splash screen), dotfiles, daemons, firewall"
+    echo " 2. Install:   package manager, packages, flatpaks"
+    echo " 4. Fix:       touchpad, nvidia-brightness, lofree fn keys"
+    echo " 5. Optimize:  boot_params, mkinitcpio_hooks, nvidia, bootloader_timeout"
+    echo " 6. Configure: default shell, splash screen, dotfiles, daemons, firewall"
     echo " 7. Clean up"
     echo -e "${BLUE}===================${NC}\n"
 
@@ -96,10 +96,10 @@ welcome_message() {
     echo -e "\n${GREEN}Here we go! Buckle up...${NC}\n"
 }
 
-_log_info() { echo -e "${BLUE}\n[INFO]${NC} $*" && sleep 0.8; }
-_log_ok() { echo -e "${GREEN}\n[OK]${NC} $*"; }
-_log_warn() { echo -e "${YELLOW}\n[WARN]${NC} $*" && sleep 0.8; }
-_log_error() { echo -e "${RED}\n[ERROR]${NC} $*"; }
+_log_info() { echo -e "${BLUE}\n[INFO]${NC} $*" && sleep 1; }
+_log_ok() { echo -e "${GREEN}[OK]${NC} $*"; }
+_log_warn() { echo -e "${YELLOW}[WARN]${NC} $*" && sleep; }
+_log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
 mount_external_home() {
     local UUID="f49038fe-5540-46a8-82a5-40f6ed890d8d"
@@ -161,7 +161,7 @@ install_packages() {
 _install_group() {
     local label="$1"
     shift
-    _log_info "Installing [$label]..."
+    _log_info "Installing [$label]_PKGS..."
     paru -S --noconfirm --needed "$@" || {
         _log_error "Failed: $label"
         return 1
