@@ -36,6 +36,7 @@ main() {
     optimize_base_boot_params
     optimize_nvidia_rtd3
     optimize_mkinitcpio_hooks
+    optimize_mkinitcpio_compression
     optimize_bootloader_timeout
 
     # --Configurations ------------
@@ -96,9 +97,9 @@ welcome_message() {
     echo -e "\n${GREEN}Here we go! Buckle up...${NC}\n"
 }
 
-_log_info() { echo -e "${BLUE}\n[INFO]${NC} $*" && sleep 1; }
+_log_info() { echo -e "${BLUE}\n[INFO]${NC} $*"; } # && sleep 1
 _log_ok() { echo -e "${GREEN}[OK]${NC} $*"; }
-_log_warn() { echo -e "${YELLOW}[WARN]${NC} $*" && sleep; }
+_log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; } # && sleep 1
 _log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
 mount_external_home() {
@@ -273,18 +274,42 @@ EOF
 
 optimize_mkinitcpio_hooks() {
     local config_file="/etc/mkinitcpio.conf"
+
+    sudo sed -i -E "s|^MODULES=\(.*\)|MODULES=()|" "$config_file"
+
     local current_hooks
     current_hooks=$(grep -oP '^HOOKS=\(\K[^)]*' "$config_file")
 
     if echo "$current_hooks" | grep -qw "udev"; then
-        current_hooks=$(echo "$current_hooks" | sed -e 's/\budev\b/systemd/' -e 's/\bkeymap\b/sd-vconsole/' -e 's/\bconsolefont\b//' | tr -s ' ' | sed 's/ $//')
-        sudo sed -i -E "s|^HOOKS=\(.*\)|HOOKS=($current_hooks)|" "$config_file"
-        _log_ok "Updated HOOKS to: ($current_hooks)"
-        _log_info "Rebuilding initramfs..."
-        sudo mkinitcpio -P
-    else
-        _log_ok "systemd hook already present in $config_file."
+        current_hooks=$(echo "$current_hooks" |
+            sed -e 's/\budev\b/systemd/' \
+                -e 's/\bkeymap\b/sd-vconsole/' \
+                -e 's/\bconsolefont\b//' |
+            tr -s ' ' | sed 's/ $//')
     fi
+
+    current_hooks=$(echo "$current_hooks" | sed 's/\bkms\b//' | tr -s ' ' | sed 's/^ //')
+
+    sudo sed -i -E "s|^HOOKS=\(.*\)|HOOKS=($current_hooks)|" "$config_file"
+    _log_ok "Updated HOOKS to: ($current_hooks)"
+
+    _log_info "Rebuilding initramfs..."
+    sudo mkinitcpio -P
+}
+
+optimize_mkinitcpio_compression() {
+    local conf="/etc/mkinitcpio.conf"
+    _log_info "Optimizing initramfs size and compression..."
+
+    sudo sed -i '/^COMPRESSION=/d' "$conf"
+    sudo sed -i '/^COMPRESSION_OPTIONS=/d' "$conf"
+    sudo sed -i '/^MODULES_DECOMPRESS=/d' "$conf"
+
+    echo 'COMPRESSION="zstd"' | sudo tee -a "$conf" >/dev/null
+    echo 'COMPRESSION_OPTIONS=(-2 -T0)' | sudo tee -a "$conf" >/dev/null
+    echo 'MODULES_DECOMPRESS="no"' | sudo tee -a "$conf" >/dev/null
+
+    _log_ok "Initramfs compression optimized (zstd, no module decompression)."
 }
 
 optimize_bootloader_timeout() {
@@ -294,11 +319,8 @@ optimize_bootloader_timeout() {
         return 0
     fi
     sudo mkdir -p "/boot/loader"
-    if grep -q "^timeout" "$loader_file" 2>/dev/null; then
-        sudo sed -i -E "s/^timeout.*/timeout 0/" "$loader_file"
-    else
-        echo "timeout 0" | sudo tee -a "$loader_file" >/dev/null
-    fi
+    sudo sed -i '/^timeout/d' "$loader_file"
+    echo "timeout 0" | sudo tee -a "$loader_file" >/dev/null
     _log_ok "Bootloader timeout set to 0 in $loader_file."
 }
 
@@ -360,6 +382,7 @@ configure_daemons() {
         cups.service          # for printing
         avahi-daemon.service  # for printing
         pcscd.service         # for YubiKey support
+        nvidia-persistenced.service
     )
 
     local sys_enable=(
@@ -378,10 +401,13 @@ configure_daemons() {
         getty@tty1.service                 # tty1 is managed by ly dm
         systemd-tpm2-setup-early.service   # encryption support
         systemd-tpm2-setup.service         # encryption support
-        systemd-pcrproduct.service         # TPM2 PCR measurement
         watchdog.service                   # for battery saving
         wpa_supplicant.service             # default nm backend is iwd
         NetworkManager-wait-online.service # don't wait for wifi connect on startup
+        systemd-pcrproduct.service         # TPM2 PCR measurement
+        systemd-pcrphase-sysinit.service   # TPM2
+        systemd-pcrphase-initrd.service    # TPM2
+        systemd-pcrphase.service           # TPM2
     )
 
     local usr_enable=(
