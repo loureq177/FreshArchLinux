@@ -125,6 +125,7 @@ export TUI_PKGS=(
 
 export THEME_PKGS=(
     ttf-jetbrains-mono-nerd
+    terminus-font
     papirus-icon-theme
     noto-fonts
     noto-fonts-emoji
@@ -156,7 +157,6 @@ export GNOME_PKGS=(
 export AUR_PKGS=(
     grimblast-git
     bibata-cursor-git
-    envycontrol
     nitch
     pwvucontrol
     tlrc
