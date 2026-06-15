@@ -34,6 +34,7 @@ main() {
 
     # -- Optimizations ------------
     optimize_base_boot_params
+    optimize_nvidia_rtd3
     optimize_mkinitcpio_hooks
     optimize_bootloader_timeout
 
@@ -179,31 +180,13 @@ install_flatpaks() {
 # -- Fixes -------------------------------------------------------------------
 
 fix_brightness_nvidia() {
-    _log_info "Configuring Native Hybrid Early KMS and boot parameters..."
-    local config_file="/etc/mkinitcpio.conf"
-    local required_modules=("amdgpu" "nvidia" "nvidia_modeset" "nvidia_uvm" "nvidia_drm")
-    local current_modules
-
-    current_modules=$(grep -oP '^MODULES=\(\K[^)]*' "$config_file")
-    for mod in "${required_modules[@]}"; do
-        if ! echo "$current_modules" | grep -qw "$mod"; then
-            current_modules="$current_modules $mod"
-        fi
-    done
-
-    current_modules=$(echo "$current_modules" | tr -s ' ' | sed 's/^ //;s/ $//')
-    sudo sed -i -E "s|^MODULES=\(.*\)|MODULES=($current_modules)|" "$config_file"
-    _log_ok "Updated MODULES in $config_file to: ($current_modules)"
-
+    _log_info "Configuring Native Hybrid parameters..."
     local params=(
         acpi_backlight=native
         video.brightness_switch_enabled=0
         amdgpu.dcfeaturemask=0x8
         amdgpu.abmlevel=0
-        nvidia-drm.modeset=1
-        nvidia-drm.fbdev=1
     )
-
     _add_kernel_params "${params[@]}"
 }
 
@@ -257,25 +240,46 @@ optimize_base_boot_params() {
         mem_sleep_default=deep
         quiet
         loglevel=3
-        nowatchdog        # turns off watchdog (+battery life)
-        amd_pstate=active # newer energy management ryzen driver (+battery life)
+        nowatchdog
+        amd_pstate=active
+        console=tty1
+        tpm_tis.interrupts=0
+        tpm_tis.force=0
+        8250.nr_uarts=0
     )
     _log_info "Configuring base boot parameters (performance, power)..."
     _add_kernel_params "${params[@]}"
+
+    echo -e "blacklist tpm\nblacklist tpm_crb\nblacklist tpm_tis\nblacklist tpm_tis_core" | sudo tee /etc/modprobe.d/tpm-blacklist.conf >/dev/null
+}
+
+optimize_nvidia_rtd3() {
+    _log_info "Configuring Dynamic Power Management (RTD3) for NVIDIA..."
+
+    sudo rm -f /etc/modprobe.d/blacklist-nvidia.conf /etc/modprobe.d/envycontrol.conf
+
+    echo 'options nvidia "NVreg_DynamicPowerManagement=0x02"' | sudo tee /etc/modprobe.d/nvidia-pm.conf >/dev/null
+
+    sudo tee /etc/udev/rules.d/80-nvidia-pm.rules >/dev/null <<'EOF'
+ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="auto"
+ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="auto"
+ACTION=="unbind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="unbind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="on"
+EOF
+
+    sudo udevadm control --reload-rules
+    _log_ok "NVIDIA RTD3 configured."
 }
 
 optimize_mkinitcpio_hooks() {
     local config_file="/etc/mkinitcpio.conf"
     local current_hooks
-
     current_hooks=$(grep -oP '^HOOKS=\(\K[^)]*' "$config_file")
 
     if echo "$current_hooks" | grep -qw "udev"; then
         current_hooks=$(echo "$current_hooks" | sed -e 's/\budev\b/systemd/' -e 's/\bkeymap\b/sd-vconsole/' -e 's/\bconsolefont\b//' | tr -s ' ' | sed 's/ $//')
-
         sudo sed -i -E "s|^HOOKS=\(.*\)|HOOKS=($current_hooks)|" "$config_file"
         _log_ok "Updated HOOKS to: ($current_hooks)"
-
         _log_info "Rebuilding initramfs..."
         sudo mkinitcpio -P
     else
@@ -374,6 +378,7 @@ configure_daemons() {
         getty@tty1.service                 # tty1 is managed by ly dm
         systemd-tpm2-setup-early.service   # encryption support
         systemd-tpm2-setup.service         # encryption support
+        systemd-pcrproduct.service         # TPM2 PCR measurement
         watchdog.service                   # for battery saving
         wpa_supplicant.service             # default nm backend is iwd
         NetworkManager-wait-online.service # don't wait for wifi connect on startup
@@ -388,7 +393,7 @@ configure_daemons() {
     )
 
     local usr_mask=(
-        at-spi-dbus-bus.service
+        at-spi-dbus-bus.service # accessibility features
     )
 
     _log_info "Enabling system daemons..."
