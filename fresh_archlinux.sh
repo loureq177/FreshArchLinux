@@ -408,6 +408,7 @@ configure_daemons() {
         systemd-pcrphase-sysinit.service   # TPM2
         systemd-pcrphase-initrd.service    # TPM2
         systemd-pcrphase.service           # TPM2
+        nvidia-persistenced.service
     )
 
     local usr_enable=(
