@@ -28,7 +28,7 @@ main() {
     install_flatpaks
 
     # -- Fixes --------------------
-    fix_brightness_nvidia
+    fix_display_brightness
     fix_fn_keys_lofree
     fix_touchpad
 
@@ -45,6 +45,7 @@ main() {
     configure_dotfiles
     configure_daemons
     configure_firewall
+    configure_nvidia_cdi
 
     sudo mkinitcpio -P
     cleanup
@@ -180,7 +181,7 @@ install_flatpaks() {
 
 # -- Fixes -------------------------------------------------------------------
 
-fix_brightness_nvidia() {
+fix_display_brightness() {
     _log_info "Configuring Native Hybrid parameters..."
     local params=(
         acpi_backlight=native
@@ -255,19 +256,19 @@ optimize_base_boot_params() {
 }
 
 optimize_nvidia_rtd3() {
-    _log_info "Configuring Dynamic Power Management (RTD3) for NVIDIA..."
-
-    sudo rm -f /etc/modprobe.d/blacklist-nvidia.conf /etc/modprobe.d/envycontrol.conf
-
-    echo 'options nvidia "NVreg_DynamicPowerManagement=0x02"' | sudo tee /etc/modprobe.d/nvidia-pm.conf >/dev/null
-
+    _log_info "Configuring NVIDIA RTD3 (Dynamic Power Management)..."
+    sudo rm -f /etc/modprobe.d/nvidia-blacklist.conf \
+        /etc/modprobe.d/envycontrol.conf
+    sudo tee /etc/modprobe.d/nvidia.conf >/dev/null <<'EOF'
+options nvidia-drm modeset=1
+options nvidia NVreg_DynamicPowerManagement=0x02
+EOF
     sudo tee /etc/udev/rules.d/80-nvidia-pm.rules >/dev/null <<'EOF'
 ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="auto"
 ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="auto"
 ACTION=="unbind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="on"
 ACTION=="unbind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="on"
 EOF
-
     sudo udevadm control --reload-rules
     _log_ok "NVIDIA RTD3 configured."
 }
@@ -451,6 +452,26 @@ cleanup() {
     else
         _log_warn "sysclean not found at $HOME/.local/bin/sysclean — skipping."
     fi
+}
+
+configure_nvidia_cdi() {
+    _log_info "Scheduling NVIDIA CDI generation for first boot..."
+    sudo tee /etc/systemd/system/nvidia-cdi-generate.service >/dev/null <<'EOF'
+[Unit]
+Description=Generate NVIDIA CDI spec for container GPU passthrough
+After=systemd-udev-settle.service
+ConditionPathExists=!/etc/cdi/nvidia.yaml
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    sudo systemctl enable nvidia-cdi-generate.service
+    _log_ok "NVIDIA CDI service enabled (runs once on next boot)."
 }
 
 finished_message() {
