@@ -9,13 +9,10 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/arch-setup.log"
-mkdir -p "$(dirname "$LOG_FILE")"
-(
-    umask 077
-    mkdir -p "$(dirname "$LOG_FILE")"
-)
-exec > >(tee -a "$LOG_FILE") 2>&1
+
+LOGS="${XDG_CACHE_HOME:-$HOME/.cache}/arch-setup.log"
+(umask 077 && mkdir -p "$(dirname "$LOGS")")
+exec > >(tee -a "$LOGS") 2>&1
 
 main() {
     check_user
@@ -87,10 +84,10 @@ welcome_message() {
     echo -e "${BLUE}=== ACTION PLAN ===${NC}"
     echo " 1. Mount external home"
     echo " 2. Install:   package manager, packages, flatpaks"
-    echo " 4. Fix:       touchpad, nvidia-brightness, lofree fn keys"
-    echo " 5. Optimize:  boot_params, mkinitcpio_hooks, nvidia, bootloader_timeout"
-    echo " 6. Configure: default shell, splash screen, dotfiles, daemons, firewall"
-    echo " 7. Clean up"
+    echo " 3. Fix:       touchpad, nvidia-brightness, lofree fn keys"
+    echo " 4. Optimize:  boot_params, mkinitcpio_hooks, nvidia, bootloader_timeout"
+    echo " 5. Configure: default shell, splash screen, dotfiles, daemons, firewall"
+    echo " 6. Clean up"
     echo -e "${BLUE}===================${NC}\n"
 
     echo -e "${RED}Press ENTER to start the setup, or Ctrl+C to abort...${NC}"
@@ -98,9 +95,9 @@ welcome_message() {
     echo -e "\n${GREEN}Here we go! Buckle up...${NC}\n"
 }
 
-_log_info() { echo -e "${BLUE}\n[INFO]${NC} $*"; } # && sleep 1
+_log_info() { echo -e "${BLUE}\n[INFO]${NC} $*"; }
 _log_ok() { echo -e "${GREEN}[OK]${NC} $*"; }
-_log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; } # && sleep 1
+_log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 _log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
 mount_external_home() {
@@ -220,14 +217,13 @@ _add_kernel_params() {
 
     _log_info "Adding boot parameters: ${params[*]}"
 
-    local current_cmdline
-    current_cmdline=$(cat "$cmdline_file")
-    local new_cmdline="$current_cmdline"
+    local new_cmdline
+    new_cmdline=$(cat "$cmdline_file")
 
     for param in "${params[@]}"; do
         local key="${param%%=*}"
         local escaped_key
-        escaped_key=$(printf '%s\n' "$key" | sed 's/[][\.*^$+?{}|()]/\\&/g')
+        escaped_key=$(printf '%s' "$key" | sed 's/[^[:alnum:]_]/\\&/g')
         new_cmdline=$(echo "$new_cmdline" | sed -E "s/ *${escaped_key}(=[^ ]+)?//g")
     done
 
@@ -293,18 +289,13 @@ optimize_mkinitcpio_hooks() {
 
     sudo sed -i -E "s|^HOOKS=\(.*\)|HOOKS=($current_hooks)|" "$config_file"
     _log_ok "Updated HOOKS to: ($current_hooks)"
-
-    _log_info "Rebuilding initramfs..."
-    sudo mkinitcpio -P
 }
 
 optimize_mkinitcpio_compression() {
     local conf="/etc/mkinitcpio.conf"
     _log_info "Optimizing initramfs size and compression..."
 
-    sudo sed -i '/^COMPRESSION=/d' "$conf"
-    sudo sed -i '/^COMPRESSION_OPTIONS=/d' "$conf"
-    sudo sed -i '/^MODULES_DECOMPRESS=/d' "$conf"
+    sudo sed -i -e '/^COMPRESSION=/d' -e '/^COMPRESSION_OPTIONS=/d' -e '/^MODULES_DECOMPRESS=/d' "$conf"
 
     echo 'COMPRESSION="zstd"' | sudo tee -a "$conf" >/dev/null
     echo 'COMPRESSION_OPTIONS=(-2 -T0)' | sudo tee -a "$conf" >/dev/null
@@ -331,14 +322,8 @@ configure_default_shell() {
     local zsh_path="/usr/bin/zsh"
     if [ "$SHELL" != "$zsh_path" ]; then
         _log_info "Changing default shell to zsh for $USER..."
-        if [ -n "$zsh_path" ]; then
-            sudo chsh -s "$zsh_path" "$USER"
-            _log_ok "Default shell changed to zsh."
-        else
-            _log_warn "Zsh is not installed. Skipping shell change."
-        fi
-    else
-        _log_info "Zsh is already the default shell."
+        sudo chsh -s "$zsh_path" "$USER"
+        _log_ok "Default shell changed to zsh."
     fi
 }
 
@@ -481,7 +466,7 @@ finished_message() {
     echo -e "${GREEN} INSTALLATION COMPLETED SUCCESSFULLY!${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo ""
-    echo "Logs saved to: $LOG_FILE"
+    echo "Logs saved to: $LOGS"
     echo "System is primed for Hyprland login. Enjoy the speed."
     echo "Restart is necessary for the installation to finish."
     echo ""

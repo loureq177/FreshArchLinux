@@ -106,6 +106,7 @@ export CLI_PKGS=(
     profile-sync-daemon
     resvg
     ruff
+    shellcheck
     starship
     zsh
     zsh-autosuggestions
@@ -161,6 +162,4 @@ export AUR_PKGS=(
     pwvucontrol
     tlrc
     zsh-fast-syntax-highlighting
-    # this one edoes not work with the new ffmpeg now!!!
-    # wl-screenrec
 )
