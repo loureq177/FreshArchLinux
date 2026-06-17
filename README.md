@@ -1,33 +1,22 @@
 # FreshArchLinux
 
-A Bash script to provision a fresh Arch Linux system with Hyprland, NVIDIA/AMD
-hybrid GPU support, essential apps, and dotfiles.
+This is my personal post-install script for Arch Linux. I use it to quickly
+deploy my environment on my specific hardware.
+
+It automates setting up Hyprland, audio, development tools, and my dotfiles.
 
 ## Features
 
-- External home drive auto-mount via UUID
-- Rustup and `paru` (AUR helper) installation
-- Package groups: system, GPU (NVIDIA + AMD), fingerprint, Hyprland, audio, CLI,
-  apps, themes
-- Flatpak app installation (Zen Browser, Spotify, VS Code, Discord, LibreOffice,
-  etc.)
-- UFW firewall (deny incoming, allow outgoing)
-- NVIDIA DRM early KMS + brightness fix (hybrid AMD iGPU / NVIDIA dGPU)
-- Boot parameters: performance governor, deep sleep, quiet boot, AMD pstate
-- Lofree keyboard Fn key fix (`hid_apple.fnmode=2`)
-- Default shell change to Zsh
-- Unified Kernel Image (UKI) preset configuration
-- Dotfiles bootstrap from GitHub (`loureq177/.files`)
-- Systemd service management (ly, NetworkManager, pipewire, podman, cups, etc.)
-- PAM GNOME keyring auto-unlock
-- Microphone volume preset (pipewire)
-- System cleanup
-
-## Prerequisites
-
-- Arch Linux installed (minimum base system)
-- Internet connection
-- `sudo` configured for your user
+- **Installations** Installs everything I need from the official arch repository
+  and flathub (system tools, dev environment, daily apps).
+- **Fixes:** Kernel parameters for Lenovo Legion touchpads, Lofree Fn keys, and
+  NVIDIA/AMD hybrid brightness.
+- **Optimizations** Optimizes `mkinitcpio`, sets up NVIDIA RTD3 for power
+  saving, and handles NVIDIA CDI generation.
+- **Configurations** Daemons, UFW firewall, UKI presets, Zsh as the default
+  shell.
+- **Dotfiles:** Automatically clones and installs my setup from
+  [`loureq177/.files`](https://github.com/loureq177/.files).
 
 ## Usage
 
@@ -35,7 +24,3 @@ hybrid GPU support, essential apps, and dotfiles.
 chmod +x fresh_archlinux.sh
 ./fresh_archlinux.sh
 ```
-
-Do NOT run with `sudo` — the script calls `sudo` internally as needed.
-
-Package lists are in `packages.sh` and `flatpaks.sh`
