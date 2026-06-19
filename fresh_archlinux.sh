@@ -43,6 +43,7 @@ main() {
     configure_daemons
     configure_firewall
     configure_nvidia_cdi
+    configure_progressive_webapps
 
     sudo mkinitcpio -P
     cleanup
@@ -124,7 +125,7 @@ mount_external_home() {
         return 0
     }
     if [ -d "/home/$USER" ] && [ "$(stat -c '%U' /home/"$USER" 2>/dev/null)" != "$USER" ]; then
-        sudo chown -R "$USER":"$USER" /home/"$USER"
+        sudo chown -Rh "$USER":"$USER" /home/"$USER"
         sudo chmod 700 /home/"$USER"
     fi
     _log_ok "Home drive ready."
@@ -132,7 +133,7 @@ mount_external_home() {
 
 install_and_setup_paru() {
     if ! command -v paru &>/dev/null; then
-        sudo pacman -Syu --needed --noconfirm git base-devel rust
+        sudo pacman -S --needed --noconfirm git base-devel rust
         (
             cd /tmp
             git clone https://aur.archlinux.org/paru.git
@@ -311,7 +312,9 @@ optimize_bootloader_timeout() {
         return 0
     fi
     sudo mkdir -p "/boot/loader"
-    sudo sed -i '/^timeout/d' "$loader_file"
+    if [ -f "$loader_file" ]; then
+        sudo sed -i '/^timeout/d' "$loader_file"
+    fi
     echo "timeout 0" | sudo tee -a "$loader_file" >/dev/null
     _log_ok "Bootloader timeout set to 0 in $loader_file."
 }
@@ -352,12 +355,12 @@ configure_dotfiles() {
         git -C ~/.files pull || _log_warn "Failed to pull latest dotfiles updates."
     fi
 
-    cd ~/.files || {
-        _log_error "Cannot enter ~/.files"
-        return 1
-    }
-    chmod +x ./install.sh
-    ./install.sh
+    if [ -f ~/.files/install.sh ]; then
+        chmod +x ~/.files/install.sh
+        ~/.files/install.sh
+    else
+        _log_warn "No install.sh found in dotfiles — skipping."
+    fi
     _log_ok "Dotfiles installed."
 }
 
@@ -368,7 +371,6 @@ configure_daemons() {
         cups.service          # for printing
         avahi-daemon.service  # for printing
         pcscd.service         # for YubiKey support
-        nvidia-persistenced.service
     )
 
     local sys_enable=(
@@ -411,12 +413,12 @@ configure_daemons() {
 
     _log_info "Enabling system daemons..."
 
-    sudo systemctl disable "${sys_disable[@]}"
-    sudo systemctl enable "${sys_enable[@]}"
-    sudo systemctl mask "${sys_mask[@]}"
+    sudo systemctl disable "${sys_disable[@]}" 2>/dev/null || true
+    sudo systemctl enable "${sys_enable[@]}" 2>/dev/null || true
+    sudo systemctl mask "${sys_mask[@]}" 2>/dev/null || true
 
-    systemctl --user enable "${usr_enable[@]}"
-    systemctl --user mask "${usr_mask[@]}"
+    systemctl --user enable "${usr_enable[@]}" 2>/dev/null || true
+    systemctl --user mask "${usr_mask[@]}" 2>/dev/null || true
 
     _log_ok "Daemons configured."
 }
@@ -427,6 +429,71 @@ configure_firewall() {
     sudo ufw default allow outgoing
     sudo ufw --force enable
     _log_ok "Firewall configured properly"
+}
+
+configure_progressive_webapps() {
+    local pwa_repo="$HOME/.files/archlinux/pwa"
+    local bin_dir="$pwa_repo/.local/bin"
+    local desktop_dir="$pwa_repo/.local/share/applications"
+    local icon_dir="$pwa_repo/.local/share/icons/hicolor/scalable/apps"
+
+    mkdir -p "$bin_dir" "$desktop_dir" "$icon_dir"
+
+    local profile="\$HOME/.local/share/pwa/chromium-profile"
+
+    _log_info "Downloading 2026 app icons..."
+
+    local -A icon_urls
+    icon_urls[pwa_calendar]="https://upload.wikimedia.org/wikipedia/commons/f/fa/Google_Calendar_icon_%282026%29.svg"
+    icon_urls[pwa_gmail]="https://upload.wikimedia.org/wikipedia/commons/8/8f/Gmail_icon_%282026%29.svg"
+    icon_urls[pwa_tasks]="https://upload.wikimedia.org/wikipedia/commons/3/3f/Google_Tasks_Logo_05.2026.svg"
+
+    local name
+    for name in "${!icon_urls[@]}"; do
+        curl -fsSL -o "$icon_dir/$name.svg" "${icon_urls[$name]}" || _log_warn "Failed to download $name icon"
+    done
+
+    local apps=(
+        "Calendar|https://calendar.google.com|pwa_calendar|chrome-calendar.google.com__-Default|Network;Office;"
+        "Gmail|https://mail.google.com|pwa_gmail|chrome-mail.google.com__-Default|Network;Email;"
+        "WhatsApp|https://web.whatsapp.com|whatsapp-desktop|chrome-web.whatsapp.com__-Default|Network;InstantMessaging;"
+        "Tasks|https://tasks.google.com|pwa_tasks|chrome-tasks.google.com__-Default|Office;Utility;"
+    )
+
+    local class bin desktop
+    for app in "${apps[@]}"; do
+        IFS='|' read -r name url icon wm_class categories <<<"$app"
+        class="pwa-$(echo "$name" | tr '[:upper:]' '[:lower:]')"
+        bin="$bin_dir/$class"
+        desktop="$desktop_dir/$class.desktop"
+
+        cat >"$bin" <<PWAEOF
+#!/bin/bash
+chromium --ozone-platform-hint=auto \\
+  --user-data-dir="$profile" \\
+  --app=$url
+PWAEOF
+        chmod +x "$bin"
+
+        cat >"$desktop" <<DESKTOPEOF
+[Desktop Entry]
+Name=$name
+Exec=$class
+Icon=$icon
+Terminal=false
+Type=Application
+StartupWMClass=$wm_class
+Categories=$categories
+DESKTOPEOF
+    done
+
+    _log_info "Restowing pwa package..."
+    (cd "$HOME/.files/archlinux" && stow --restow --target "$HOME" pwa)
+
+    gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+    update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+
+    _log_ok "Progressive web apps configured (2026 icons, stow-managed)."
 }
 
 cleanup() {
