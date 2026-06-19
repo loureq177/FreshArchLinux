@@ -69,11 +69,16 @@ export AUDIO_PKGS=(
 export GUI_PKGS=(
     ghostty
     steam
+    discord
+    gimp
+    zen-browser-bin
+    chromium
     libreoffice-fresh
     libreoffice-fresh-pl
 )
 
 export CLI_PKGS=(
+    wf-recorder
     ttyd
     7zip
     fwupd
@@ -111,6 +116,8 @@ export CLI_PKGS=(
     zsh
     zsh-autosuggestions
     uv
+    grim
+    slurp
 )
 
 export TUI_PKGS=(
@@ -120,6 +127,7 @@ export TUI_PKGS=(
     impala
     ncdu
     btop
+    nvtop
     yazi
     lazygit
 )
@@ -156,7 +164,6 @@ export GNOME_PKGS=(
 )
 
 export AUR_PKGS=(
-    grimblast-git
     bibata-cursor-git
     nitch
     pwvucontrol
