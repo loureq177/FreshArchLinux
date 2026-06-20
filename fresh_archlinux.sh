@@ -43,6 +43,7 @@ main() {
     configure_daemons
     configure_firewall
     configure_nvidia_cdi
+    configure_hyprland_multigpu
     configure_progressive_webapps
 
     sudo mkinitcpio -P
@@ -188,6 +189,23 @@ fix_display_brightness() {
         amdgpu.abmlevel=0
     )
     _add_kernel_params "${params[@]}"
+
+    sudo tee -a /etc/acpi/handler.sh >/dev/null <<'EOF'
+# --- ACPI brightness (added by FreshArchLinux) ---
+video/brightnessup)
+    case "$2" in
+        BRTUP) brightnessctl set +5% ;;
+        *)     logger "BrightnessUP undefined: $2" ;;
+    esac
+    ;;
+video/brightnessdown)
+    case "$2" in
+        BRTDN) brightnessctl set 5%- ;;
+        *)     logger "BrightnessDOWN undefined: $2" ;;
+    esac
+    ;;
+EOF
+    _log_ok "Brightness fixed. Kernel params and ACPI brightness handlers added."
 }
 
 fix_fn_keys_lofree() {
@@ -382,6 +400,7 @@ configure_daemons() {
         cups.socket         # for printing
         avahi-daemon.socket # for printing
         pcscd.socket        # for YubiKey support
+        acpid.service       # for brightness to work with video.brightness_switch_enabled=0
         upower.service
     )
 
@@ -524,6 +543,35 @@ WantedBy=multi-user.target
 EOF
     sudo systemctl enable nvidia-cdi-generate.service
     _log_ok "NVIDIA CDI service enabled (runs once on next boot)."
+}
+
+configure_hyprland_multigpu() {
+    _log_info "Configuring Hyprland multi-GPU (AMD primary, NVIDIA for external)..."
+
+    local amd_pci_id nvidia_pci_id
+    amd_pci_id=$(lspci -d ::03xx | grep -i 'AMD\|ATI' | head -1 | cut -f1 -d' ')
+    nvidia_pci_id=$(lspci -d ::03xx | grep -i 'NVIDIA' | head -1 | cut -f1 -d' ')
+
+    if [ -z "$amd_pci_id" ]; then
+        _log_warn "No AMD GPU detected — skipping."
+        return 0
+    fi
+
+    sudo tee /etc/udev/rules.d/99-hyprland-gpus.rules >/dev/null <<EOF
+KERNEL=="card*", KERNELS=="0000:$amd_pci_id", SUBSYSTEM=="drm", SUBSYSTEMS=="pci", SYMLINK+="dri/amd-igpu"
+EOF
+
+    if [ -n "$nvidia_pci_id" ]; then
+        sudo tee -a /etc/udev/rules.d/99-hyprland-gpus.rules >/dev/null <<EOF
+KERNEL=="card*", KERNELS=="0000:$nvidia_pci_id", SUBSYSTEM=="drm", SUBSYSTEMS=="pci", SYMLINK+="dri/nvidia-dgpu"
+EOF
+        _log_ok "Detected NVIDIA at PCI: $nvidia_pci_id → /dev/dri/nvidia-dgpu"
+    fi
+
+    sudo udevadm control --reload
+    sudo udevadm trigger --subsystem-match=drm
+
+    _log_ok "Detected AMD at PCI: $amd_pci_id → /dev/dri/amd-igpu"
 }
 
 finished_message() {
