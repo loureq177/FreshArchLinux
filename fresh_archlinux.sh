@@ -261,6 +261,7 @@ optimize_nvidia_rtd3() {
     sudo tee /etc/modprobe.d/nvidia.conf >/dev/null <<'EOF'
 options nvidia-drm modeset=1
 options nvidia NVreg_DynamicPowerManagement=0x02
+options nvidia NVreg_RegistryDwords="EnableBrightnessControl=0"
 EOF
     sudo tee /etc/udev/rules.d/80-nvidia-pm.rules >/dev/null <<'EOF'
 ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="auto"
@@ -268,6 +269,7 @@ ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200
 ACTION=="unbind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="on"
 ACTION=="unbind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="on"
 EOF
+
     sudo udevadm control --reload-rules
     _log_ok "NVIDIA RTD3 configured."
 }
@@ -353,7 +355,8 @@ configure_dotfiles() {
     if [ ! -d "$HOME/.files" ]; then
         git clone https://github.com/loureq177/.files.git ~/.files
     else
-        _log_info "Dotfiles directory already exists."
+        _log_warn "Dotfiles directory already exists. Skipping."
+        return 0
     fi
 
     if [ -f ~/.files/install.sh ]; then
