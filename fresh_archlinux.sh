@@ -369,8 +369,7 @@ configure_dotfiles() {
     if [ ! -d "$HOME/.files" ]; then
         git clone https://github.com/loureq177/.files.git ~/.files
     else
-        _log_info "Dotfiles directory already exists. Pulling latest changes..."
-        git -C ~/.files pull || _log_warn "Failed to pull latest dotfiles updates."
+        _log_info "Dotfiles directory already exists."
     fi
 
     if [ -f ~/.files/install.sh ]; then
