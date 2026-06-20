@@ -189,23 +189,7 @@ fix_display_brightness() {
         amdgpu.abmlevel=0
     )
     _add_kernel_params "${params[@]}"
-
-    sudo tee -a /etc/acpi/handler.sh >/dev/null <<'EOF'
-# --- ACPI brightness (added by FreshArchLinux) ---
-video/brightnessup)
-    case "$2" in
-        BRTUP) brightnessctl set +5% ;;
-        *)     logger "BrightnessUP undefined: $2" ;;
-    esac
-    ;;
-video/brightnessdown)
-    case "$2" in
-        BRTDN) brightnessctl set 5%- ;;
-        *)     logger "BrightnessDOWN undefined: $2" ;;
-    esac
-    ;;
-EOF
-    _log_ok "Brightness fixed. Kernel params and ACPI brightness handlers added."
+    _log_ok "Brightness kernel parameters configured."
 }
 
 fix_fn_keys_lofree() {
