@@ -535,7 +535,7 @@ configure_hyprland_multigpu() {
     _log_info "Configuring Hyprland multi-GPU (AMD primary, NVIDIA for external)..."
 
     local amd_pci_id nvidia_pci_id
-    amd_pci_id=$(lspci -d ::03xx | grep -i 'AMD\|ATI' | head -1 | cut -f1 -d' ')
+    amd_pci_id=$(lspci -d ::03xx | grep -i 'AMD' | head -1 | cut -f1 -d' ')
     nvidia_pci_id=$(lspci -d ::03xx | grep -i 'NVIDIA' | head -1 | cut -f1 -d' ')
 
     if [ -z "$amd_pci_id" ]; then
