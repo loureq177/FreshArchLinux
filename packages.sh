@@ -78,6 +78,7 @@ export GUI_PKGS=(
 )
 
 export CLI_PKGS=(
+    wev
     wf-recorder
     ttyd
     7zip
