@@ -48,8 +48,8 @@ export HYPRLAND_PKGS=(
     cliphist
     wl-clipboard
     wtype
-    mako
     swaybg
+    swaync
     satty
 )
 
@@ -75,12 +75,13 @@ export GUI_PKGS=(
     chromium
     libreoffice-fresh
     libreoffice-fresh-pl
+    network-manager-applet
 )
 
 export CLI_PKGS=(
     wev
     wf-recorder
-    ttyd
+    tailscale
     7zip
     fwupd
     zip
@@ -112,7 +113,6 @@ export CLI_PKGS=(
     profile-sync-daemon
     resvg
     ruff
-    shellcheck
     starship
     zsh
     zsh-autosuggestions
