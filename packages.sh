@@ -39,9 +39,7 @@ export HYPRLAND_PKGS=(
     xdg-desktop-portal-gtk
     xdg-desktop-portal-hyprland
     qt5-wayland
-    qt5ct
     qt6-wayland
-    qt6ct
     waybar
     rofi
     rofi-emoji
@@ -145,6 +143,7 @@ export THEME_PKGS=(
 
 export MISC_PKGS=(
     asciiquarium
+    acpid
     brightnessctl
     espeak-ng
     jre-openjdk
