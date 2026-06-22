@@ -45,6 +45,7 @@ main() {
     configure_nvidia_cdi
     configure_hyprland_multigpu
     configure_progressive_webapps
+    clean_dot_desktop
 
     sudo mkinitcpio -P
     cleanup
@@ -387,7 +388,9 @@ configure_daemons() {
         avahi-daemon.socket # for printing
         pcscd.socket        # for YubiKey support
         acpid.service       # for brightness to work with video.brightness_switch_enabled=0
+        tailscaled.service
         upower.service
+        sshd
     )
 
     local sys_mask=(
@@ -501,6 +504,29 @@ DESKTOPEOF
     _log_ok "Progressive web apps configured (2026 icons, stow-managed)."
 }
 
+clean_dot_desktop() {
+    local dir="/usr/share/applications"
+
+    local -a remove=(
+        libreoffice-base
+        libreoffice-draw
+        libreoffice-math
+        libreoffice-startcenter
+        libreoffice-xsltfilter
+    )
+
+    for name in "${remove[@]}"; do
+        if [ -f "$dir/${name}.desktop" ]; then
+            sudo rm -v "$dir/${name}.desktop"
+            _log_ok "Removed: ${name}.desktop"
+        else
+            _log_warn "Not found: ${name}.desktop — already removed?"
+        fi
+    done
+
+    _log_ok "Desktop files cleaned."
+}
+
 cleanup() {
     _log_info "Cleaning up..."
     if [ -x "$HOME/.local/bin/sysclean" ]; then
@@ -561,16 +587,16 @@ EOF
 }
 
 finished_message() {
-    echo ""
-    echo ""
-    echo -e "${GREEN}========================================${NC}"
-    echo -e "${GREEN} INSTALLATION COMPLETED SUCCESSFULLY!${NC}"
-    echo -e "${GREEN}========================================${NC}"
-    echo ""
-    echo "Logs saved to: $LOGS"
-    echo "System is primed for Hyprland login. Enjoy the speed."
-    echo "Restart is necessary for the installation to finish."
-    echo ""
+    printf '\n'
+    printf '%b========================================%b\n' "${GREEN}" "${NC}"
+    printf '%b INSTALLATION COMPLETED SUCCESSFULLY!%b\n' "${GREEN}" "${NC}"
+    printf '%b========================================%b\n' "${GREEN}" "${NC}"
+    printf '\n'
+    printf 'Logs saved to: %s\n' "$LOGS"
+    printf 'System is primed for Hyprland login. Enjoy the speed.\n'
+    printf 'Restart is necessary for the installation to finish.\n\n'
+    printf 'Remember to setup tailscale manually after reboot with:\n'
+    printf 'sudo tailscale up\n'
 }
 
 main
