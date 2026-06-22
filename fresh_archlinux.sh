@@ -25,7 +25,7 @@ main() {
     install_flatpaks
 
     # -- Fixes --------------------
-    fix_display_brightness
+    # fix_display_brightness
     fix_fn_keys_lofree
     fix_touchpad
 
@@ -181,17 +181,43 @@ install_flatpaks() {
 
 # -- Fixes -------------------------------------------------------------------
 
-fix_display_brightness() {
-    _log_info "Configuring Native Hybrid parameters..."
-    local params=(
-        acpi_backlight=native
-        video.brightness_switch_enabled=0
-        amdgpu.dcfeaturemask=0x8
-        amdgpu.abmlevel=0
-    )
-    _add_kernel_params "${params[@]}"
-    _log_ok "Brightness kernel parameters configured."
-}
+# fix_display_brightness() {
+#     _log_info "Configuring Native Hybrid parameters..."
+#     local params=(
+#         acpi_backlight=native
+#         video.brightness_switch_enabled=0
+#         amdgpu.dcfeaturemask=0x8
+#         amdgpu.abmlevel=0
+#     )
+#     _add_kernel_params "${params[@]}"
+#
+#     _log_info "Patching acpid handler for brightness keys..."
+#     local handler="/etc/acpi/handler.sh"
+#
+#     if [ ! -f "$handler" ]; then
+#         _log_warn "acpid handler.sh not found — is acpid installed?"
+#         return 0
+#     fi
+#
+#     if grep -Fxq "    video/brightnessup)" "$handler" 2>/dev/null; then
+#         _log_info "Brightness handling already configured in acpid handler."
+#         return 0
+#     fi
+#
+#     sudo sed -i '/^# --- ACPI brightness.*$/,$d' "$handler"
+#
+#     local line
+#     line=$(grep -n "^    \*)$" "$handler" | tail -1 | cut -d: -f1)
+#     sudo sed -i "${line}i\\
+#     video/brightnessup)\\
+#         brightnessctl --device=amdgpu_bl2 set +5%\\
+#         ;;\\
+#     video/brightnessdown)\\
+#         brightnessctl --device=amdgpu_bl2 set 5%-\\
+#         ;;" "$handler"
+#
+#     _log_ok "Brightness handling added to acpid."
+# }
 
 fix_fn_keys_lofree() {
     _log_info "Fixing Lofree function keys..."
