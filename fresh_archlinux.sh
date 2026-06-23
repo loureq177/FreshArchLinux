@@ -14,6 +14,7 @@ LOGS="${XDG_CACHE_HOME:-$HOME/.cache}/arch-setup.log"
 (umask 077 && mkdir -p "$(dirname "$LOGS")")
 exec > >(tee -a "$LOGS") 2>&1
 
+# Entry point orchestrating the full Arch Linux setup process.
 main() {
     check_user
     welcome_message
@@ -52,12 +53,14 @@ main() {
     finished_message
 }
 
+# Ensures the script runs as a regular user and keeps sudo credentials alive.
 check_user() {
     if [ "$EUID" -eq 0 ]; then
         echo -e "${RED}[ERROR] Please run as normal user (DO NOT USE SUDO to start script)${NC}"
         exit 1
     fi
     sudo -v
+    # Background loop refreshing sudo timestamp until the script exits.
     sudo_keepalive() {
         while true; do
             sudo -n true
@@ -70,6 +73,7 @@ check_user() {
     trap 'kill $KEEPALIVE_PID 2>/dev/null' EXIT
 }
 
+# Prints the ASCII banner, action plan, and waits for user confirmation before proceeding.
 welcome_message() {
     L1="    ____               __        ___            __      __                    "
     L2="   / __/_______  _____/ /_      /   |  ________/ /___  / /   ( )___  __  ___  __"
@@ -103,6 +107,7 @@ _log_ok() { echo -e "${GREEN}[OK]${NC} $*"; }
 _log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 _log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
+# Mounts an external drive as /home if its UUID matches the expected value.
 mount_external_home() {
     local UUID="f49038fe-5540-46a8-82a5-40f6ed890d8d"
     _log_info "Configuring external drive with UUID: $UUID"
@@ -133,6 +138,7 @@ mount_external_home() {
     _log_ok "Home drive ready."
 }
 
+# Installs the paru AUR helper if missing and performs a full system upgrade.
 install_and_setup_paru() {
     if ! command -v paru &>/dev/null; then
         sudo pacman -S --needed --noconfirm git base-devel rust
@@ -150,6 +156,7 @@ install_and_setup_paru() {
     paru -Syu --devel --noconfirm
 }
 
+# Installs all package groups defined in packages.sh.
 install_packages() {
     source "$SCRIPT_DIR/packages.sh"
     _log_info "Installing essential applications..."
@@ -160,6 +167,7 @@ install_packages() {
     done
 }
 
+# Installs a single named package group via paru.
 _install_group() {
     local label="$1"
     shift
@@ -171,6 +179,7 @@ _install_group() {
     _log_ok "[$label] done."
 }
 
+# Installs Flatpak applications from Flathub for the current user.
 install_flatpaks() {
     source "$SCRIPT_DIR/flatpaks.sh"
     _log_info "Configuring Flatpak and installing applications for user..."
@@ -219,6 +228,7 @@ install_flatpaks() {
 #     _log_ok "Brightness handling added to acpid."
 # }
 
+# Fixes Lofree keyboard function keys by setting hid_apple fnmode parameter.
 fix_fn_keys_lofree() {
     _log_info "Fixing Lofree function keys..."
     if [ -d "/sys/module/hid_apple" ]; then
@@ -230,12 +240,14 @@ fix_fn_keys_lofree() {
     _add_kernel_params "hid_apple.fnmode=2"
 }
 
+# Applies kernel parameters to fix Lenovo Legion i8042 touchpad issues.
 fix_touchpad() {
     _log_info "Fixing Lenovo Legion touchpad (i8042 controller)..."
     _add_kernel_params "i8042.nopnp"
     _log_ok "Touchpad boot parameters applied."
 }
 
+# Adds or replaces kernel boot parameters in /etc/kernel/cmdline.
 _add_kernel_params() {
     local -a params=("$@")
     local cmdline_file="/etc/kernel/cmdline"
@@ -263,6 +275,7 @@ _add_kernel_params() {
 
 # -- Optimizations ----------------------------------------------------------
 
+# Configures power-saving and performance kernel boot parameters, blacklists TPM.
 optimize_base_boot_params() {
     local params=(
         mem_sleep_default=deep
@@ -281,6 +294,7 @@ optimize_base_boot_params() {
     echo -e "blacklist tpm\nblacklist tpm_crb\nblacklist tpm_tis\nblacklist tpm_tis_core" | sudo tee /etc/modprobe.d/tpm-blacklist.conf >/dev/null
 }
 
+# Enables NVIDIA RTD3 dynamic power management and DRM modesetting.
 optimize_nvidia_rtd3() {
     _log_info "Configuring NVIDIA RTD3 (Dynamic Power Management)..."
     sudo rm -f /etc/modprobe.d/nvidia-blacklist.conf \
@@ -301,6 +315,7 @@ EOF
     _log_ok "NVIDIA RTD3 configured."
 }
 
+# Migrates mkinitcpio hooks from udev to systemd for faster initramfs.
 optimize_mkinitcpio_hooks() {
     local config_file="/etc/mkinitcpio.conf"
 
@@ -323,6 +338,7 @@ optimize_mkinitcpio_hooks() {
     _log_ok "Updated HOOKS to: ($current_hooks)"
 }
 
+# Sets initramfs compression to zstd with fast compression level.
 optimize_mkinitcpio_compression() {
     local conf="/etc/mkinitcpio.conf"
     _log_info "Optimizing initramfs size and compression..."
@@ -336,6 +352,7 @@ optimize_mkinitcpio_compression() {
     _log_ok "Initramfs compression optimized (zstd, no module decompression)."
 }
 
+# Sets systemd-boot menu timeout to 0 for instant boot.
 optimize_bootloader_timeout() {
     local loader_file="/boot/loader/loader.conf"
     if ! sudo bootctl is-installed 2>/dev/null; then
@@ -352,6 +369,7 @@ optimize_bootloader_timeout() {
 
 # -- Configuration -----------------------------------------------------------
 
+# Changes the user's default login shell to zsh.
 configure_default_shell() {
     local zsh_path="/usr/bin/zsh"
     if [ "$SHELL" != "$zsh_path" ]; then
@@ -361,6 +379,7 @@ configure_default_shell() {
     fi
 }
 
+# Writes mkinitcpio preset for Unified Kernel Image generation.
 configure_uki_preset() {
     _log_info "Configuring UKI presets..."
     sudo mkdir -p /boot/EFI/Linux
@@ -377,6 +396,7 @@ EOF
     _log_ok "UKI preset configured."
 }
 
+# Clones dotfiles from GitHub and runs install.sh to symlink configs.
 configure_dotfiles() {
     _log_info "Downloading and linking dotfiles..."
     if [ ! -d "$HOME/.files" ]; then
@@ -395,6 +415,7 @@ configure_dotfiles() {
     _log_ok "Dotfiles installed."
 }
 
+# Enables, disables, and masks systemd services for the target system profile.
 configure_daemons() {
     local sys_disable=(
         fwupd-refresh.timer   # for firmware updates
@@ -458,6 +479,7 @@ configure_daemons() {
     _log_ok "Daemons configured."
 }
 
+# Enables UFW firewall with default deny incoming and allow outgoing.
 configure_firewall() {
     _log_info "Configuring firewall"
     sudo ufw default deny incoming
@@ -466,6 +488,7 @@ configure_firewall() {
     _log_ok "Firewall configured properly"
 }
 
+# Generates launcher scripts and desktop entries for Google Calendar, Gmail, WhatsApp, and Tasks PWAs.
 configure_progressive_webapps() {
     local pwa_repo="$HOME/.files/archlinux/pwa"
     local bin_dir="$pwa_repo/.local/bin"
@@ -531,6 +554,7 @@ DESKTOPEOF
     _log_ok "Progressive web apps configured (2026 icons, stow-managed)."
 }
 
+# Removes unnecessary LibreOffice desktop entries from /usr/share/applications.
 clean_dot_desktop() {
     local dir="/usr/share/applications"
 
@@ -554,6 +578,7 @@ clean_dot_desktop() {
     _log_ok "Desktop files cleaned."
 }
 
+# Runs the sysclean script to remove orphaned packages and package cache.
 cleanup() {
     _log_info "Cleaning up..."
     if [ -x "$HOME/.local/bin/sysclean" ]; then
@@ -564,6 +589,7 @@ cleanup() {
     fi
 }
 
+# Creates a one-shot systemd service to generate NVIDIA CDI spec on first boot.
 configure_nvidia_cdi() {
     _log_info "Scheduling NVIDIA CDI generation for first boot..."
     sudo tee /etc/systemd/system/nvidia-cdi-generate.service >/dev/null <<'EOF'
@@ -584,6 +610,7 @@ EOF
     _log_ok "NVIDIA CDI service enabled (runs once on next boot)."
 }
 
+# Creates udev symlinks for AMD iGPU and NVIDIA dGPU for Hyprland multi-GPU setups.
 configure_hyprland_multigpu() {
     _log_info "Configuring Hyprland multi-GPU (AMD primary, NVIDIA for external)..."
 
@@ -613,6 +640,7 @@ EOF
     _log_ok "Detected AMD at PCI: $amd_pci_id → /dev/dri/amd-igpu"
 }
 
+# Prints the final success message with post-install instructions.
 finished_message() {
     printf '\n'
     printf '%b========================================%b\n' "${GREEN}" "${NC}"
