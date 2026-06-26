@@ -118,6 +118,7 @@ export CLI_PKGS=(
     grim
     slurp
     openbsd-netcat
+    duf
 )
 
 export TUI_PKGS=(
@@ -130,6 +131,7 @@ export TUI_PKGS=(
     nvtop
     yazi
     lazygit
+    termshark
 )
 
 export THEME_PKGS=(
