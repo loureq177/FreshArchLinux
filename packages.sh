@@ -117,6 +117,7 @@ export CLI_PKGS=(
     uv
     grim
     slurp
+    openbsd-netcat
 )
 
 export TUI_PKGS=(
@@ -155,7 +156,6 @@ export GNOME_PKGS=(
     gnome-calculator
     gnome-clocks
     gnome-keyring
-    baobab
     loupe
     nautilus
     seahorse
