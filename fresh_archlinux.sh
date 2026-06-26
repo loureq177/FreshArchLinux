@@ -26,7 +26,7 @@ main() {
     install_flatpaks
 
     # -- Fixes --------------------
-    # fix_display_brightness
+    fix_display_brightness
     fix_fn_keys_lofree
     fix_touchpad
 
@@ -46,9 +46,11 @@ main() {
     configure_nvidia_cdi
     configure_hyprland_multigpu
     configure_progressive_webapps
-    clean_dot_desktop
+    configure_tty_font
 
     sudo mkinitcpio -P
+
+    clean_dot_desktop
     cleanup
     finished_message
 }
@@ -190,43 +192,13 @@ install_flatpaks() {
 
 # -- Fixes -------------------------------------------------------------------
 
-# fix_display_brightness() {
-#     _log_info "Configuring Native Hybrid parameters..."
-#     local params=(
-#         acpi_backlight=native
-#         video.brightness_switch_enabled=0
-#         amdgpu.dcfeaturemask=0x8
-#         amdgpu.abmlevel=0
-#     )
-#     _add_kernel_params "${params[@]}"
-#
-#     _log_info "Patching acpid handler for brightness keys..."
-#     local handler="/etc/acpi/handler.sh"
-#
-#     if [ ! -f "$handler" ]; then
-#         _log_warn "acpid handler.sh not found — is acpid installed?"
-#         return 0
-#     fi
-#
-#     if grep -Fxq "    video/brightnessup)" "$handler" 2>/dev/null; then
-#         _log_info "Brightness handling already configured in acpid handler."
-#         return 0
-#     fi
-#
-#     sudo sed -i '/^# --- ACPI brightness.*$/,$d' "$handler"
-#
-#     local line
-#     line=$(grep -n "^    \*)$" "$handler" | tail -1 | cut -d: -f1)
-#     sudo sed -i "${line}i\\
-#     video/brightnessup)\\
-#         brightnessctl --device=amdgpu_bl2 set +5%\\
-#         ;;\\
-#     video/brightnessdown)\\
-#         brightnessctl --device=amdgpu_bl2 set 5%-\\
-#         ;;" "$handler"
-#
-#     _log_ok "Brightness handling added to acpid."
-# }
+# Fixes brightness control issues for hybrid AMD-NVIDIA GPU by enabling
+# NVIDIA WMI EC module. I don' know why it's not on by default tho...
+fix_display_brightness() {
+    _log_info "Configuring NVIDIA WMI EC backlight parameter..."
+    _add_kernel_params "acpi_backlight=nvidia_wmi_ec"
+    _log_ok "Brightness boot parameter applied."
+}
 
 # Fixes Lofree keyboard function keys by setting hid_apple fnmode parameter.
 fix_fn_keys_lofree() {
@@ -421,7 +393,7 @@ configure_daemons() {
         fwupd-refresh.timer   # for firmware updates
         fwupd-refresh.service # for firmware updates
         cups.service          # for printing
-        avahi-daemon.service  # for printing
+        avahi-daemon.service  # for hostname discovery
         pcscd.service         # for YubiKey support
     )
 
@@ -432,7 +404,7 @@ configure_daemons() {
         NetworkManager.service
         bluetooth.service
         cups.socket         # for printing
-        avahi-daemon.socket # for printing
+        avahi-daemon.socket # for hostname discovery
         pcscd.socket        # for YubiKey support
         acpid.service       # for brightness to work with video.brightness_switch_enabled=0
         tailscaled.service
@@ -490,10 +462,10 @@ configure_firewall() {
 
 # Generates launcher scripts and desktop entries for Google Calendar, Gmail, WhatsApp, and Tasks PWAs.
 configure_progressive_webapps() {
-    local pwa_repo="$HOME/.files/archlinux/pwa"
-    local bin_dir="$pwa_repo/.local/bin"
-    local desktop_dir="$pwa_repo/.local/share/applications"
-    local icon_dir="$pwa_repo/.local/share/icons/hicolor/scalable/apps"
+    local webapps_repo="$HOME/.files/archlinux/webapps"
+    local bin_dir="$webapps_repo/.local/bin"
+    local desktop_dir="$webapps_repo/.local/share/applications"
+    local icon_dir="$webapps_repo/.local/share/icons/hicolor/scalable/apps"
 
     mkdir -p "$bin_dir" "$desktop_dir" "$icon_dir"
 
@@ -502,9 +474,9 @@ configure_progressive_webapps() {
     _log_info "Downloading 2026 app icons..."
 
     local -A icon_urls
-    icon_urls[pwa_calendar]="https://upload.wikimedia.org/wikipedia/commons/f/fa/Google_Calendar_icon_%282026%29.svg"
-    icon_urls[pwa_gmail]="https://upload.wikimedia.org/wikipedia/commons/8/8f/Gmail_icon_%282026%29.svg"
-    icon_urls[pwa_tasks]="https://upload.wikimedia.org/wikipedia/commons/3/3f/Google_Tasks_Logo_05.2026.svg"
+    icon_urls[google - calendar]="https://upload.wikimedia.org/wikipedia/commons/f/fa/Google_Calendar_icon_%282026%29.svg"
+    icon_urls[google - mail]="https://upload.wikimedia.org/wikipedia/commons/8/8f/Gmail_icon_%282026%29.svg"
+    icon_urls[google - tasks]="https://upload.wikimedia.org/wikipedia/commons/3/3f/Google_Tasks_Logo_05.2026.svg"
 
     local name
     for name in "${!icon_urls[@]}"; do
@@ -512,23 +484,24 @@ configure_progressive_webapps() {
     done
 
     local apps=(
-        "Calendar|https://calendar.google.com|pwa_calendar|chrome-calendar.google.com__-Default|Network;Office;"
-        "Gmail|https://mail.google.com|pwa_gmail|chrome-mail.google.com__-Default|Network;Email;"
-        "WhatsApp|https://web.whatsapp.com|whatsapp-desktop|chrome-web.whatsapp.com__-Default|Network;InstantMessaging;"
-        "Tasks|https://tasks.google.com|pwa_tasks|chrome-tasks.google.com__-Default|Office;Utility;"
+        "Calendar|https://calendar.google.com|google-calendar|Network;Office;"
+        "Gmail|https://mail.google.com|google-mail|Network;Email;"
+        "WhatsApp|https://web.whatsapp.com|whatsapp-desktop|Network;InstantMessaging;"
+        "Tasks|https://tasks.google.com|google-tasks|Office;Utility;"
     )
 
     local class bin desktop
     for app in "${apps[@]}"; do
-        IFS='|' read -r name url icon wm_class categories <<<"$app"
-        class="pwa-$(echo "$name" | tr '[:upper:]' '[:lower:]')"
+        IFS='|' read -r name url icon categories <<<"$app"
+        class="$(echo "$name" | tr '[:upper:]' '[:lower:]')"
         bin="$bin_dir/$class"
         desktop="$desktop_dir/$class.desktop"
 
         cat >"$bin" <<PWAEOF
 #!/bin/bash
-chromium --ozone-platform-hint=auto \\
-  --user-data-dir="$profile" \\
+chromium --ozone-platform-hint=auto \
+  --user-data-dir="$profile" \
+  --class=$class \
   --app=$url
 PWAEOF
         chmod +x "$bin"
@@ -540,13 +513,13 @@ Exec=$class
 Icon=$icon
 Terminal=false
 Type=Application
-StartupWMClass=$wm_class
+StartupWMClass=$class
 Categories=$categories
 DESKTOPEOF
     done
 
-    _log_info "Restowing pwa package..."
-    (cd "$HOME/.files/archlinux" && stow --restow --target "$HOME" pwa)
+    _log_info "Restowing webapps package..."
+    (cd "$HOME/.files/archlinux" && stow --restow --target "$HOME" webapps)
 
     gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
     update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
@@ -554,7 +527,17 @@ DESKTOPEOF
     _log_ok "Progressive web apps configured (2026 icons, stow-managed)."
 }
 
-# Removes unnecessary LibreOffice desktop entries from /usr/share/applications.
+# Increases tty font and swaps it to unicode terminus for readability
+configure_tty_font() {
+    if grep -q "^FONT=" /etc/vconsole.conf; then
+        sudo sed -i 's/^FONT=.*/FONT=ter-u24n/' /etc/vconsole.conf
+    else
+        echo "FONT=ter-u24n" | sudo tee -a /etc/vconsole.conf >/dev/null
+    fi
+    sudo systemctl restart systemd-vconsole-setup
+}
+
+# Removes unnecessary desktop entries from /usr/share/applications.
 clean_dot_desktop() {
     local dir="/usr/share/applications"
 
@@ -564,6 +547,7 @@ clean_dot_desktop() {
         libreoffice-math
         libreoffice-startcenter
         libreoffice-xsltfilter
+        cmake-gui
     )
 
     for name in "${remove[@]}"; do
