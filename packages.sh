@@ -156,7 +156,6 @@ export MISC_PKGS=(
 
 export GNOME_PKGS=(
     gnome-calculator
-    gnome-clocks
     gnome-keyring
     loupe
     nautilus
