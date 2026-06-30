@@ -457,8 +457,6 @@ configure_progressive_webapps() {
 
     mkdir -p "$bin_dir" "$desktop_dir" "$icon_dir"
 
-    local profile="\$HOME/.local/share/pwa/chromium-profile"
-
     _log_info "Downloading 2026 app icons..."
 
     local -A icon_urls
@@ -488,7 +486,7 @@ configure_progressive_webapps() {
         cat >"$bin" <<PWAEOF
 #!/bin/bash
 chromium --ozone-platform-hint=auto \
-  --user-data-dir="$profile" \
+  --user-data-dir="\$HOME/.local/share/pwa/chromium-profile" \
   --class=$class \
   --app=$url
 PWAEOF
