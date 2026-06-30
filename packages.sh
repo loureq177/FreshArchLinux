@@ -132,6 +132,7 @@ export TUI_PKGS=(
     yazi
     lazygit
     termshark
+    jolt
 )
 
 export THEME_PKGS=(
