@@ -523,29 +523,24 @@ configure_tty_font() {
     sudo systemctl restart systemd-vconsole-setup
 }
 
-# Removes unnecessary desktop entries from /usr/share/applications.
+# Hides unnecessary desktop entries via user-scope XDG override.
 clean_dot_desktop() {
-    local dir="/usr/share/applications"
+    local override_dir="$HOME/.local/share/applications"
+    mkdir -p "$override_dir"
 
-    local -a remove=(
-        libreoffice-base
-        libreoffice-draw
-        libreoffice-math
-        libreoffice-startcenter
-        libreoffice-xsltfilter
-        cmake-gui
-    )
-
-    for name in "${remove[@]}"; do
-        if [ -f "$dir/${name}.desktop" ]; then
-            sudo rm -v "$dir/${name}.desktop"
-            _log_ok "Removed: ${name}.desktop"
-        else
-            _log_warn "Not found: ${name}.desktop — already removed?"
-        fi
+    local count=0
+    for pattern in libreoffice- avahi-discover bssh bvnc; do
+        while IFS= read -r -d '' sysfile; do
+            cp "$sysfile" "$override_dir/"
+            sed -i '/^\[Desktop Entry\]$/a\Hidden=true' "$override_dir/$(basename "$sysfile")"
+            count=$((count + 1))
+        done < <(find /usr/share/applications -name "${pattern}*.desktop" -print0 2>/dev/null)
     done
 
-    _log_ok "Desktop files cleaned."
+    [ "$count" -eq 0 ] && _log_info "No desktop entries to hide." && return
+
+    update-desktop-database "$override_dir" 2>/dev/null || true
+    _log_ok "Desktop files hidden (user-scope override)."
 }
 
 # Runs the sysclean script to remove orphaned packages and package cache.
