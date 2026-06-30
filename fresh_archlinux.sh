@@ -289,11 +289,10 @@ optimize_mkinitcpio_hooks() {
         current_hooks=$(echo "$current_hooks" |
             sed -e 's/\budev\b/systemd/' \
                 -e 's/\bkeymap\b/sd-vconsole/' \
-                -e 's/\bconsolefont\b//' |
-            tr -s ' ' | sed 's/ $//')
+                -e 's/\bconsolefont\b//')
     fi
 
-    current_hooks=$(echo "$current_hooks" | sed 's/\bkms\b//' | tr -s ' ' | sed 's/^ //')
+    current_hooks=$(echo "$current_hooks" | sed 's/\bkms\b//' | tr -s ' ' | sed 's/^ *//; s/ *$//')
 
     sudo sed -i -E "s|^HOOKS=\(.*\)|HOOKS=($current_hooks)|" "$config_file"
     _log_ok "Updated HOOKS to: ($current_hooks)"
