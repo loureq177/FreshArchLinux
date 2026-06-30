@@ -162,23 +162,12 @@ install_and_setup_paru() {
 install_packages() {
     source "$SCRIPT_DIR/packages.sh"
     _log_info "Installing essential applications..."
-
     for label in "${PKG_GROUPS[@]}"; do
         declare -n arr="${label}_PKGS"
-        _install_group "$label" "${arr[@]}"
+        _log_info "Installing [$label]_PKGS..."
+        paru -S --noconfirm --needed "${arr[@]}"
+        _log_ok "[$label] done."
     done
-}
-
-# Installs a single named package group via paru.
-_install_group() {
-    local label="$1"
-    shift
-    _log_info "Installing [$label]_PKGS..."
-    paru -S --noconfirm --needed "$@" || {
-        _log_error "Failed: $label"
-        return 1
-    }
-    _log_ok "[$label] done."
 }
 
 # Installs Flatpak applications from Flathub for the current user.
