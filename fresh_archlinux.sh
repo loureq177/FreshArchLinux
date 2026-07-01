@@ -23,7 +23,6 @@ main() {
     # -- Installations ------------
     install_and_setup_paru
     install_packages
-    install_flatpaks
 
     # -- Fixes --------------------
     fix_display_brightness
@@ -58,7 +57,7 @@ main() {
 # Ensures the script runs as a regular user and keeps sudo credentials alive.
 check_user() {
     if [ "$EUID" -eq 0 ]; then
-        echo -e "${RED}[ERROR] Please run as normal user (DO NOT USE SUDO to start script)${NC}"
+        echo -e "${RED}[ERROR] Please run as normal user.${NC}"
         exit 1
     fi
     sudo -v
@@ -168,15 +167,6 @@ install_packages() {
         paru -S --noconfirm --needed "${arr[@]}"
         _log_ok "[$label] done."
     done
-}
-
-# Installs Flatpak applications from Flathub for the current user.
-install_flatpaks() {
-    source "$SCRIPT_DIR/flatpaks.sh"
-    _log_info "Configuring Flatpak and installing applications for user..."
-    flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-    flatpak install --user -y --or-update flathub "${FLATPAK_APPS[@]}"
-    _log_ok "Flatpaks installed for $USER."
 }
 
 # -- Fixes -------------------------------------------------------------------
@@ -370,7 +360,8 @@ configure_dotfiles() {
         chmod +x ~/.files/install.sh
         ~/.files/install.sh
     else
-        _log_warn "No install.sh found in dotfiles — skipping."
+        _log_error "No install.sh found in dotfiles."
+        exit 1
     fi
     _log_ok "Dotfiles installed."
 }
