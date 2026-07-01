@@ -1,5 +1,7 @@
 # FreshArchLinux
 
+**WARNING:** Running this on your hardware may damage your system. Review before executing.
+
 This is my personal post-install script for Arch Linux. I use it to quickly
 deploy my environment on my specific hardware.
 
