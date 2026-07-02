@@ -10,6 +10,8 @@ export SYSTEM_PKGS=(
     ufw
     zram-generator
     libcamera
+    libfido2
+    pam-u2f
 )
 
 export GPU_PKGS=(

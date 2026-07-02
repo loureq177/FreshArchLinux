@@ -369,11 +369,13 @@ configure_dotfiles() {
 # Enables, disables, and masks systemd services for the target system profile.
 configure_daemons() {
     local sys_disable=(
-        fwupd-refresh.timer   # for firmware updates
-        fwupd-refresh.service # for firmware updates
-        cups.service          # for printing
-        avahi-daemon.service  # for hostname discovery
-        pcscd.service         # for YubiKey support
+        fwupd-refresh.timer               # for firmware updates
+        fwupd-refresh.service             # for firmware updates
+        cups.service                      # for printing
+        avahi-daemon.service              # for hostname discovery
+        NetworkManager-dispatcher.service # runs 0 scripts after nm changes it's state
+        systemd-userdbd.socket            # user database (I am the only one)
+        remote-fs.target                  # remote filesystems
     )
 
     local sys_enable=(
@@ -382,13 +384,14 @@ configure_daemons() {
         ufw.service
         NetworkManager.service
         bluetooth.service
-        cups.socket         # for printing
-        avahi-daemon.socket # for hostname discovery
-        pcscd.socket        # for YubiKey support
-        acpid.service       # for brightness to work with video.brightness_switch_enabled=0
         tailscaled.service
         upower.service
-        sshd
+        acpid.service # for brightness to work with video.brightness_switch_enabled=0
+
+        avahi-daemon.socket # for hostname discovery
+        pcscd.socket        # for YubiKey support
+        cups.socket         # for printing
+        sshd.socket
     )
 
     local sys_mask=(
@@ -415,6 +418,7 @@ configure_daemons() {
     )
 
     local usr_mask=(
+        xdg-user-dirs.service
         at-spi-dbus-bus.service # accessibility features
     )
 
