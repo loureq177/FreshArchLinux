@@ -172,7 +172,6 @@ install_packages() {
 # -- Fixes -------------------------------------------------------------------
 
 # Fixes brightness control issues for hybrid AMD-NVIDIA GPU by enabling
-# NVIDIA WMI EC module. I don' know why it's not on by default tho...
 fix_display_brightness() {
     _log_info "Configuring NVIDIA WMI EC backlight parameter..."
     _add_kernel_params "acpi_backlight=nvidia_wmi_ec"
