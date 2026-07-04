@@ -409,12 +409,11 @@ configure_daemons() {
     )
 
     local usr_enable=(
-        psd.service                # profile-sync-daemon (puts browser profile to RAM)
-        pipewire.service           # audio
-        pipewire-pulse.service     # audio
-        hyprpolkitagent.service    # for password popups
-        rclone-sync.timer          # my own cloud sync daemon
-        battery-low-notify.service # my own low-battery notification service
+        psd.service             # profile-sync-daemon (puts browser profile to RAM)
+        pipewire.service        # audio
+        pipewire-pulse.service  # audio
+        hyprpolkitagent.service # for password popups
+        rclone-sync.timer       # my own cloud sync daemon
     )
 
     local usr_mask=(
