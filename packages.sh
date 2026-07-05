@@ -12,6 +12,9 @@ export SYSTEM_PKGS=(
     libcamera
     libfido2
     pam-u2f
+    git
+    stow
+    pciutils
 )
 
 export GPU_PKGS=(

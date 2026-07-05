@@ -128,10 +128,13 @@ mount_external_home() {
         fi
     fi
 
-    mountpoint -q /home && {
+    if mountpoint -q /home; then
         _log_info "Home already mounted."
-        return 0
-    }
+    else
+        _log_info "Mounting /home..."
+        sudo mount -a
+        _log_ok "/home mounted."
+    fi
     if [ -d "/home/$USER" ] && [ "$(stat -c '%U' /home/"$USER" 2>/dev/null)" != "$USER" ]; then
         sudo chown -Rh "$USER":"$USER" /home/"$USER"
         sudo chmod 700 /home/"$USER"
@@ -157,16 +160,11 @@ install_and_setup_paru() {
     paru -Syu --devel --noconfirm
 }
 
-# Installs all package groups defined in packages.sh.
 install_packages() {
     source "$SCRIPT_DIR/packages.sh"
-    _log_info "Installing essential applications..."
-    for label in "${PKG_GROUPS[@]}"; do
-        declare -n arr="${label}_PKGS"
-        _log_info "Installing [$label]_PKGS..."
-        paru -S --noconfirm --needed "${arr[@]}"
-        _log_ok "[$label] done."
-    done
+    _log_info "Installing all packages..."
+    paru -S --noconfirm --needed "${SYSTEM_PKGS[@]}" "${GPU_PKGS[@]}" "${MISC_PKGS[@]}"
+    _log_ok "All packages installed."
 }
 
 # -- Fixes -------------------------------------------------------------------
@@ -265,26 +263,12 @@ EOF
     _log_ok "NVIDIA RTD3 configured."
 }
 
-# Migrates mkinitcpio hooks from udev to systemd for faster initramfs.
 optimize_mkinitcpio_hooks() {
     local config_file="/etc/mkinitcpio.conf"
-
-    sudo sed -i -E "s|^MODULES=\(.*\)|MODULES=()|" "$config_file"
-
-    local current_hooks
-    current_hooks=$(grep -oP '^HOOKS=\(\K[^)]*' "$config_file")
-
-    if echo "$current_hooks" | grep -qw "udev"; then
-        current_hooks=$(echo "$current_hooks" |
-            sed -e 's/\budev\b/systemd/' \
-                -e 's/\bkeymap\b/sd-vconsole/' \
-                -e 's/\bconsolefont\b//')
-    fi
-
-    current_hooks=$(echo "$current_hooks" | sed 's/\bkms\b//' | tr -s ' ' | sed 's/^ *//; s/ *$//')
-
-    sudo sed -i -E "s|^HOOKS=\(.*\)|HOOKS=($current_hooks)|" "$config_file"
-    _log_ok "Updated HOOKS to: ($current_hooks)"
+    _log_info "Updating mkinitcpio modules and hooks..."
+    sudo sed -i -E 's|^MODULES=\(.*\)|MODULES=()|' "$config_file"
+    sudo sed -i -E 's|^HOOKS=\(.*\)|HOOKS=(systemd autodetect modconf microcode sd-vconsole block filesystems keyboard fsck)|' "$config_file"
+    _log_ok "Updated hooks in $config_file"
 }
 
 # Sets initramfs compression to zstd with fast compression level.
@@ -443,19 +427,26 @@ configure_firewall() {
 
 # Generates launcher scripts and desktop entries for Google Calendar, Gmail, WhatsApp, and Tasks PWAs.
 configure_progressive_webapps() {
-    local webapps_repo="$HOME/.files/archlinux/webapps"
-    local bin_dir="$webapps_repo/.local/bin"
-    local desktop_dir="$webapps_repo/.local/share/applications"
-    local icon_dir="$webapps_repo/.local/share/icons/hicolor/scalable/apps"
+    local bin_dir="$HOME/.local/bin"
+    local desktop_dir="$HOME/.local/share/applications"
+    local icon_dir="$HOME/.local/share/icons/hicolor/scalable/apps"
+
+    # Clean up legacy stow packages/symlinks if they exist
+    if [ -d "$HOME/.files/archlinux/webapps" ]; then
+        _log_info "Cleaning up legacy stow PWA setup..."
+        (cd "$HOME/.files/archlinux" && stow -D --target "$HOME" webapps 2>/dev/null || true)
+        rm -rf "$HOME/.files/archlinux/webapps"
+    fi
 
     mkdir -p "$bin_dir" "$desktop_dir" "$icon_dir"
 
     _log_info "Downloading 2026 app icons..."
 
     local -A icon_urls
-    icon_urls[google - calendar]="https://upload.wikimedia.org/wikipedia/commons/f/fa/Google_Calendar_icon_%282026%29.svg"
-    icon_urls[google - mail]="https://upload.wikimedia.org/wikipedia/commons/8/8f/Gmail_icon_%282026%29.svg"
-    icon_urls[google - tasks]="https://upload.wikimedia.org/wikipedia/commons/3/3f/Google_Tasks_Logo_05.2026.svg"
+    icon_urls[google-calendar]="https://upload.wikimedia.org/wikipedia/commons/f/fa/Google_Calendar_icon_%282026%29.svg"
+    icon_urls[google-mail]="https://upload.wikimedia.org/wikipedia/commons/8/8f/Gmail_icon_%282026%29.svg"
+    icon_urls[google-tasks]="https://upload.wikimedia.org/wikipedia/commons/3/3f/Google_Tasks_Logo_05.2026.svg"
+    icon_urls[whatsapp-desktop]="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg"
 
     local name
     for name in "${!icon_urls[@]}"; do
@@ -476,12 +467,15 @@ configure_progressive_webapps() {
         bin="$bin_dir/$class"
         desktop="$desktop_dir/$class.desktop"
 
+        # Explicitly remove existing file/symlink to break stow connections
+        rm -f "$bin" "$desktop"
+
         cat >"$bin" <<PWAEOF
 #!/bin/bash
 chromium --ozone-platform-hint=auto \
   --user-data-dir="\$HOME/.local/share/pwa/chromium-profile" \
-  --class=$class \
-  --app=$url
+  --class="$class" \
+  --app="$url"
 PWAEOF
         chmod +x "$bin"
 
@@ -497,13 +491,10 @@ Categories=$categories
 DESKTOPEOF
     done
 
-    _log_info "Restowing webapps package..."
-    (cd "$HOME/.files/archlinux" && stow --restow --target "$HOME" webapps)
-
     gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
     update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
 
-    _log_ok "Progressive web apps configured (2026 icons, stow-managed)."
+    _log_ok "Progressive web apps configured (2026 icons)."
 }
 
 # Increases tty font and swaps it to unicode terminus for readability
@@ -520,20 +511,17 @@ configure_tty_font() {
 clean_dot_desktop() {
     local override_dir="$HOME/.local/share/applications"
     mkdir -p "$override_dir"
-
-    local count=0
-    for pattern in libreoffice- avahi-discover bssh bvnc; do
-        while IFS= read -r -d '' sysfile; do
-            cp "$sysfile" "$override_dir/"
-            sed -i '/^\[Desktop Entry\]$/a\Hidden=true' "$override_dir/$(basename "$sysfile")"
-            count=$((count + 1))
-        done < <(find /usr/share/applications -name "${pattern}*.desktop" -print0 2>/dev/null)
+    _log_info "Hiding desktop icons..."
+    local apps=(
+        libreoffice-startcenter libreoffice-writer libreoffice-calc 
+        libreoffice-impress libreoffice-draw libreoffice-math 
+        libreoffice-base avahi-discover bssh bvnc
+    )
+    for app in "${apps[@]}"; do
+        echo -e "[Desktop Entry]\nHidden=true" > "$override_dir/${app}.desktop"
     done
-
-    [ "$count" -eq 0 ] && _log_info "No desktop entries to hide." && return
-
     update-desktop-database "$override_dir" 2>/dev/null || true
-    _log_ok "Desktop files hidden (user-scope override)."
+    _log_ok "Desktop files hidden."
 }
 
 # Runs the sysclean script to remove orphaned packages and package cache.
@@ -547,25 +535,16 @@ cleanup() {
     fi
 }
 
-# Creates a one-shot systemd service to generate NVIDIA CDI spec on first boot.
 configure_nvidia_cdi() {
-    _log_info "Scheduling NVIDIA CDI generation for first boot..."
-    sudo tee /etc/systemd/system/nvidia-cdi-generate.service >/dev/null <<'EOF'
-[Unit]
-Description=Generate NVIDIA CDI spec for container GPU passthrough
-After=systemd-udev-settle.service
-ConditionPathExists=!/etc/cdi/nvidia.yaml
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    sudo systemctl enable nvidia-cdi-generate.service
-    _log_ok "NVIDIA CDI service enabled (runs once on next boot)."
+    _log_info "Generating NVIDIA CDI spec..."
+    if [ -f /etc/systemd/system/nvidia-cdi-generate.service ]; then
+        _log_info "Removing legacy nvidia-cdi-generate systemd service..."
+        sudo systemctl disable --now nvidia-cdi-generate.service 2>/dev/null || true
+        sudo rm -f /etc/systemd/system/nvidia-cdi-generate.service
+    fi
+    sudo mkdir -p /etc/cdi
+    sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+    _log_ok "NVIDIA CDI spec generated."
 }
 
 # Creates udev symlinks for AMD iGPU and NVIDIA dGPU for Hyprland multi-GPU setups.
