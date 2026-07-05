@@ -447,6 +447,7 @@ configure_progressive_webapps() {
     icon_urls[google-mail]="https://upload.wikimedia.org/wikipedia/commons/8/8f/Gmail_icon_%282026%29.svg"
     icon_urls[google-tasks]="https://upload.wikimedia.org/wikipedia/commons/3/3f/Google_Tasks_Logo_05.2026.svg"
     icon_urls[whatsapp-desktop]="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg"
+    icon_urls[google-gemini]="https://upload.wikimedia.org/wikipedia/commons/8/8a/Google_Gemini_logo.svg"
 
     local name
     for name in "${!icon_urls[@]}"; do
@@ -458,6 +459,7 @@ configure_progressive_webapps() {
         "Gmail|https://mail.google.com|google-mail|Network;Email;"
         "WhatsApp|https://web.whatsapp.com|whatsapp-desktop|Network;InstantMessaging;"
         "Tasks|https://tasks.google.com|google-tasks|Office;Utility;"
+        "Gemini|https://gemini.google.com|google-gemini|Network;AI;Google;"
     )
 
     local class bin desktop
@@ -472,9 +474,10 @@ configure_progressive_webapps() {
 
         cat >"$bin" <<PWAEOF
 #!/bin/bash
-chromium --ozone-platform-hint=auto \
-  --user-data-dir="\$HOME/.local/share/pwa/chromium-profile" \
-  --class="$class" \
+chromium --ozone-platform-hint=auto \\
+  --user-data-dir="\$HOME/.config/chromium" \\
+  --enable-extensions \\
+  --class="$class" \\
   --app="$url"
 PWAEOF
         chmod +x "$bin"
@@ -518,7 +521,11 @@ clean_dot_desktop() {
         libreoffice-base avahi-discover bssh bvnc
     )
     for app in "${apps[@]}"; do
-        echo -e "[Desktop Entry]\nHidden=true" > "$override_dir/${app}.desktop"
+        local sys_file="/usr/share/applications/${app}.desktop"
+        if [ -f "$sys_file" ]; then
+            cp "$sys_file" "$override_dir/"
+            sed -i '/^\[Desktop Entry\]$/a\Hidden=true' "$override_dir/${app}.desktop"
+        fi
     done
     update-desktop-database "$override_dir" 2>/dev/null || true
     _log_ok "Desktop files hidden."
