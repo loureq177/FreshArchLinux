@@ -508,9 +508,10 @@ clean_dot_desktop() {
     local override_dir="$HOME/.local/share/applications"
     mkdir -p "$override_dir"
     _log_info "Hiding desktop icons..."
+    # TODO: fix apps because they don't match their actual names
     local apps=(
-        libreoffice-startcenter libreoffice-writer libreoffice-calc 
-        libreoffice-impress libreoffice-draw libreoffice-math 
+        libreoffice-startcenter libreoffice-writer libreoffice-calc
+        libreoffice-impress libreoffice-draw libreoffice-math
         libreoffice-base avahi-discover bssh bvnc
     )
     for app in "${apps[@]}"; do
