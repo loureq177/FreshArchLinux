@@ -434,7 +434,7 @@ configure_progressive_webapps() {
 
     mkdir -p "$bin_dir" "$desktop_dir" "$icon_dir"
 
-    _log_info "Downloading 2026 app icons..."
+    _log_info "Downloading app icons..."
 
     local -A icon_urls
     icon_urls[google-calendar]="https://upload.wikimedia.org/wikipedia/commons/f/fa/Google_Calendar_icon_%282026%29.svg"
