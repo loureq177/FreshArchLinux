@@ -251,6 +251,7 @@ optimize_nvidia_rtd3() {
 options nvidia-drm modeset=1
 options nvidia NVreg_DynamicPowerManagement=0x02
 options nvidia NVreg_RegistryDwords="EnableBrightnessControl=0"
+options nvidia NVreg_PreserveVideoMemoryAllocations=1
 EOF
     sudo tee /etc/udev/rules.d/80-nvidia-pm.rules >/dev/null <<'EOF'
 ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="auto"
