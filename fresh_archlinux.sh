@@ -498,7 +498,7 @@ configure_tty_font() {
     if grep -q "^FONT=" /etc/vconsole.conf; then
         sudo sed -i 's/^FONT=.*/FONT=ter-u24n/' /etc/vconsole.conf
     else
-        echo "FONT=ter-u24n" | sudo tee -a /etc/vconsole.conf >/dev/null
+        echo "FONT=ter-u20n" | sudo tee -a /etc/vconsole.conf >/dev/null
     fi
     sudo systemctl restart systemd-vconsole-setup
 }
