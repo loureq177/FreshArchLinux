@@ -432,13 +432,6 @@ configure_progressive_webapps() {
     local desktop_dir="$HOME/.local/share/applications"
     local icon_dir="$HOME/.local/share/icons/hicolor/scalable/apps"
 
-    # Clean up legacy stow packages/symlinks if they exist
-    if [ -d "$HOME/.files/archlinux/webapps" ]; then
-        _log_info "Cleaning up legacy stow PWA setup..."
-        (cd "$HOME/.files/archlinux" && stow -D --target "$HOME" webapps 2>/dev/null || true)
-        rm -rf "$HOME/.files/archlinux/webapps"
-    fi
-
     mkdir -p "$bin_dir" "$desktop_dir" "$icon_dir"
 
     _log_info "Downloading 2026 app icons..."
@@ -470,7 +463,6 @@ configure_progressive_webapps() {
         bin="$bin_dir/$class"
         desktop="$desktop_dir/$class.desktop"
 
-        # Explicitly remove existing file/symlink to break stow connections
         rm -f "$bin" "$desktop"
 
         cat >"$bin" <<PWAEOF
