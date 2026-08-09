@@ -188,11 +188,19 @@ fix_fn_keys_lofree() {
     _add_kernel_params "hid_apple.fnmode=2"
 }
 
-# Applies kernel parameters to fix Lenovo Legion i8042 touchpad issues.
+# Applies udev rules to fix Lenovo Legion touchpad I2C runtime power management issues.
 fix_touchpad() {
-    _log_info "Fixing Lenovo Legion touchpad (i8042 controller)..."
-    _add_kernel_params "i8042.nopnp"
-    _log_ok "Touchpad boot parameters applied."
+    _log_info "Fixing Lenovo Legion touchpad (I2C PM bug)..."
+
+    # Disable runtime power management for the AMD I2C controller and I2C HID touchpad to prevent timeout freezes
+    sudo tee /etc/udev/rules.d/50-touchpad-pm.rules >/dev/null <<'EOF'
+ACTION=="add", SUBSYSTEM=="platform", KERNEL=="*AMDI0010*", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="i2c", KERNEL=="*ELAN*", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="i2c_hid", ATTR{power/control}="on"
+EOF
+    sudo udevadm control --reload-rules
+
+    _log_ok "Touchpad PM udev rules applied."
 }
 
 # Adds or replaces kernel boot parameters in /etc/kernel/cmdline.
@@ -229,7 +237,14 @@ optimize_base_boot_params() {
         mem_sleep_default=deep
         quiet
         loglevel=3
+        rd.systemd.show_status=false
+        systemd.show_status=false
+        rd.udev.log_level=3
         nowatchdog
+        audit=0
+        tsc=reliable
+        split_lock_detect=off
+        mitigations=off
         amd_pstate=active
         console=tty1
         tpm_tis.interrupts=0
@@ -268,7 +283,7 @@ optimize_mkinitcpio_hooks() {
     local config_file="/etc/mkinitcpio.conf"
     _log_info "Updating mkinitcpio modules and hooks..."
     sudo sed -i -E 's|^MODULES=\(.*\)|MODULES=()|' "$config_file"
-    sudo sed -i -E 's|^HOOKS=\(.*\)|HOOKS=(systemd autodetect modconf microcode sd-vconsole block filesystems keyboard fsck)|' "$config_file"
+    sudo sed -i -E 's|^HOOKS=\(.*\)|HOOKS=(systemd autodetect microcode modconf sd-vconsole block filesystems)|' "$config_file"
     _log_ok "Updated hooks in $config_file"
 }
 
@@ -280,7 +295,7 @@ optimize_mkinitcpio_compression() {
     sudo sed -i -e '/^COMPRESSION=/d' -e '/^COMPRESSION_OPTIONS=/d' -e '/^MODULES_DECOMPRESS=/d' "$conf"
 
     echo 'COMPRESSION="zstd"' | sudo tee -a "$conf" >/dev/null
-    echo 'COMPRESSION_OPTIONS=(-2 -T0)' | sudo tee -a "$conf" >/dev/null
+    echo 'COMPRESSION_OPTIONS=(-1 -T0)' | sudo tee -a "$conf" >/dev/null
     echo 'MODULES_DECOMPRESS="no"' | sudo tee -a "$conf" >/dev/null
 
     _log_ok "Initramfs compression optimized (zstd, no module decompression)."
@@ -390,6 +405,9 @@ configure_daemons() {
         systemd-pcrphase-initrd.service    # TPM2
         systemd-pcrphase.service           # TPM2
         nvidia-persistenced.service
+        lvm2-monitor.service        # disable if not using LVM
+        systemd-udev-settle.service # obsolete, slows down boot
+        ModemManager.service        # disable if not using cellular modem
     )
 
     local usr_enable=(
@@ -397,6 +415,7 @@ configure_daemons() {
         pipewire.service        # audio
         pipewire-pulse.service  # audio
         hyprpolkitagent.service # for password popups
+        hypridle.service        # idle & screen lock daemon
         rclone-sync.timer       # my own cloud sync daemon
     )
 
@@ -423,6 +442,14 @@ configure_firewall() {
     sudo ufw default deny incoming
     sudo ufw default allow outgoing
     sudo ufw --force enable
+
+    # Override ufw.service to avoid blocking sysinit.target on boot
+    # systemd drop-ins cannot remove dependencies, so we must copy the full unit
+    sudo cp /usr/lib/systemd/system/ufw.service /etc/systemd/system/ufw.service
+    sudo sed -i 's/Before=sysinit.target/Before=network-pre.target\nWants=network-pre.target/' /etc/systemd/system/ufw.service
+    sudo rm -rf /etc/systemd/system/ufw.service.d
+    sudo systemctl daemon-reload
+
     _log_ok "Firewall configured properly"
 }
 
@@ -437,11 +464,11 @@ configure_progressive_webapps() {
     _log_info "Downloading app icons..."
 
     local -A icon_urls
-    icon_urls[google-calendar]="https://upload.wikimedia.org/wikipedia/commons/f/fa/Google_Calendar_icon_%282026%29.svg"
-    icon_urls[google-mail]="https://upload.wikimedia.org/wikipedia/commons/8/8f/Gmail_icon_%282026%29.svg"
-    icon_urls[google-tasks]="https://upload.wikimedia.org/wikipedia/commons/3/3f/Google_Tasks_Logo_05.2026.svg"
-    icon_urls[whatsapp-desktop]="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg"
-    icon_urls[google-gemini]="https://upload.wikimedia.org/wikipedia/commons/8/8a/Google_Gemini_logo.svg"
+    icon_urls[google - calendar]="https://upload.wikimedia.org/wikipedia/commons/f/fa/Google_Calendar_icon_%282026%29.svg"
+    icon_urls[google - mail]="https://upload.wikimedia.org/wikipedia/commons/8/8f/Gmail_icon_%282026%29.svg"
+    icon_urls[google - tasks]="https://upload.wikimedia.org/wikipedia/commons/3/3f/Google_Tasks_Logo_05.2026.svg"
+    icon_urls[whatsapp - desktop]="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg"
+    icon_urls[google - gemini]="https://upload.wikimedia.org/wikipedia/commons/8/8a/Google_Gemini_logo.svg"
 
     local name
     for name in "${!icon_urls[@]}"; do
@@ -496,7 +523,7 @@ DESKTOPEOF
 # Increases tty font and swaps it to unicode terminus for readability
 configure_tty_font() {
     if grep -q "^FONT=" /etc/vconsole.conf; then
-        sudo sed -i 's/^FONT=.*/FONT=ter-u24n/' /etc/vconsole.conf
+        sudo sed -i 's/^FONT=.*/FONT=ter-u20n/' /etc/vconsole.conf
     else
         echo "FONT=ter-u20n" | sudo tee -a /etc/vconsole.conf >/dev/null
     fi
