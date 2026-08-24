@@ -193,10 +193,13 @@ fix_touchpad() {
     _log_info "Fixing Lenovo Legion touchpad (I2C PM bug)..."
 
     # Disable runtime power management for the AMD I2C controller and I2C HID touchpad to prevent timeout freezes
+    # ponytail: CUST0001:00 is Lenovo's HID for PNP0C50 on AMDI0010:03 (i2c-0), *ELAN* never matches - I2C stays auto -> deferred probe
     sudo tee /etc/udev/rules.d/50-touchpad-pm.rules >/dev/null <<'EOF'
-ACTION=="add", SUBSYSTEM=="platform", KERNEL=="*AMDI0010*", ATTR{power/control}="on"
-ACTION=="add", SUBSYSTEM=="i2c", KERNEL=="*ELAN*", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="platform", KERNEL=="AMDI0010:03", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="platform", KERNEL=="CUST0001:00", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="i2c", ATTR{power/control}="on"
 ACTION=="add", SUBSYSTEM=="i2c_hid", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="i2c_hid_acpi", ATTR{power/control}="on"
 EOF
     sudo udevadm control --reload-rules
 
