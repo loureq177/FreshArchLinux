@@ -42,6 +42,7 @@ main() {
     configure_dotfiles
     configure_daemons
     configure_firewall
+    configure_reflector
     configure_nvidia_cdi
     configure_hyprland_multigpu
     configure_progressive_webapps
@@ -170,6 +171,7 @@ install_packages() {
 # -- Fixes -------------------------------------------------------------------
 
 # Fixes brightness control issues for hybrid AMD-NVIDIA GPU by enabling
+# NVIDIA WMI EC module.
 fix_display_brightness() {
     _log_info "Configuring NVIDIA WMI EC backlight parameter..."
     _add_kernel_params "acpi_backlight=nvidia_wmi_ec"
@@ -193,7 +195,6 @@ fix_touchpad() {
     _log_info "Fixing Lenovo Legion touchpad (I2C PM bug)..."
 
     # Disable runtime power management for the AMD I2C controller and I2C HID touchpad to prevent timeout freezes
-    # ponytail: CUST0001:00 is Lenovo's HID for PNP0C50 on AMDI0010:03 (i2c-0), *ELAN* never matches - I2C stays auto -> deferred probe
     sudo tee /etc/udev/rules.d/50-touchpad-pm.rules >/dev/null <<'EOF'
 ACTION=="add", SUBSYSTEM=="platform", KERNEL=="AMDI0010:03", ATTR{power/control}="on"
 ACTION=="add", SUBSYSTEM=="platform", KERNEL=="CUST0001:00", ATTR{power/control}="on"
@@ -388,12 +389,12 @@ configure_daemons() {
         bluetooth.service
         tailscaled.service
         upower.service
-        acpid.service # for brightness to work with video.brightness_switch_enabled=0
-
         avahi-daemon.socket # for hostname discovery
         pcscd.socket        # for YubiKey support
         cups.socket         # for printing
         sshd.socket
+        swaync.service # Notification manager
+        paccache.timer
     )
 
     local sys_mask=(
@@ -456,6 +457,21 @@ configure_firewall() {
     _log_ok "Firewall configured properly"
 }
 
+# Configures Reflector mirrorlist updater and enables its weekly systemd timer.
+configure_reflector() {
+    _log_info "Configuring Reflector..."
+    sudo mkdir -p /etc/xdg/reflector
+    sudo tee /etc/xdg/reflector/reflector.conf >/dev/null <<'EOF'
+--save /etc/pacman.d/mirrorlist
+--protocol https
+--latest 5
+--sort age
+EOF
+
+    sudo systemctl enable --now reflector.timer
+    _log_ok "Reflector configured and reflector.timer enabled."
+}
+
 # Generates launcher scripts and desktop entries for Google Calendar, Gmail, WhatsApp, and Tasks PWAs.
 configure_progressive_webapps() {
     local bin_dir="$HOME/.local/bin"
@@ -467,11 +483,11 @@ configure_progressive_webapps() {
     _log_info "Downloading app icons..."
 
     local -A icon_urls
-    icon_urls[google - calendar]="https://upload.wikimedia.org/wikipedia/commons/f/fa/Google_Calendar_icon_%282026%29.svg"
-    icon_urls[google - mail]="https://upload.wikimedia.org/wikipedia/commons/8/8f/Gmail_icon_%282026%29.svg"
-    icon_urls[google - tasks]="https://upload.wikimedia.org/wikipedia/commons/3/3f/Google_Tasks_Logo_05.2026.svg"
-    icon_urls[whatsapp - desktop]="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg"
-    icon_urls[google - gemini]="https://upload.wikimedia.org/wikipedia/commons/8/8a/Google_Gemini_logo.svg"
+    icon_urls[google-calendar]="https://upload.wikimedia.org/wikipedia/commons/f/fa/Google_Calendar_icon_%282026%29.svg"
+    icon_urls[google-mail]="https://upload.wikimedia.org/wikipedia/commons/8/8f/Gmail_icon_%282026%29.svg"
+    icon_urls[google-tasks]="https://upload.wikimedia.org/wikipedia/commons/3/3f/Google_Tasks_Logo_05.2026.svg"
+    icon_urls[whatsapp-desktop]="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg"
+    icon_urls[google-gemini]="https://upload.wikimedia.org/wikipedia/commons/1/1d/Google_Gemini_icon_2025.svg"
 
     local name
     for name in "${!icon_urls[@]}"; do
@@ -538,18 +554,30 @@ clean_dot_desktop() {
     local override_dir="$HOME/.local/share/applications"
     mkdir -p "$override_dir"
     _log_info "Hiding desktop icons..."
-    # TODO: fix apps because they don't match their actual names
+
+    local search_dirs=(
+        "$HOME/.local/share/flatpak/exports/share/applications"
+        "/var/lib/flatpak/exports/share/applications"
+        "/usr/local/share/applications"
+        "/usr/share/applications"
+    )
+
     local apps=(
         libreoffice-startcenter libreoffice-writer libreoffice-calc
         libreoffice-impress libreoffice-draw libreoffice-math
-        libreoffice-base avahi-discover bssh bvnc
+        libreoffice-base avahi-discover bssh bvnc cmake-gui
+        com.prusa3d.PrusaSlicer.GCodeViewer
     )
+
     for app in "${apps[@]}"; do
-        local sys_file="/usr/share/applications/${app}.desktop"
-        if [ -f "$sys_file" ]; then
-            cp "$sys_file" "$override_dir/"
-            sed -i '/^\[Desktop Entry\]$/a\Hidden=true' "$override_dir/${app}.desktop"
-        fi
+        for dir in "${search_dirs[@]}"; do
+            local sys_file="${dir}/${app}.desktop"
+            if [ -f "$sys_file" ]; then
+                cp "$sys_file" "$override_dir/"
+                sed -i '/^\[Desktop Entry\]$/a\NoDisplay=true\nHidden=true' "$override_dir/${app}.desktop"
+                break
+            fi
+        done
     done
     update-desktop-database "$override_dir" 2>/dev/null || true
     _log_ok "Desktop files hidden."

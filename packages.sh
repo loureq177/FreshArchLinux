@@ -23,6 +23,7 @@ export GPU_PKGS=(
     nvidia-container-toolkit
     nvidia-dkms
     nvidia-utils
+    nvidia-prime
     nvidia-settings
     libva-nvidia-driver
     vulkan-radeon
