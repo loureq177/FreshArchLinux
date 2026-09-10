@@ -93,7 +93,7 @@ welcome_message() {
     echo -e "${BLUE}=== ACTION PLAN ===${NC}"
     echo " 1. Mount external home"
     echo " 2. Install:   package manager, packages, flatpaks"
-    echo " 3. Fix:       touchpad, nvidia-brightness, lofree fn keys"
+    echo " 3. Fix:       touchpad, brightness (ec+d3hot), lofree fn keys"
     echo " 4. Optimize:  boot_params, mkinitcpio_hooks, nvidia, bootloader_timeout"
     echo " 5. Configure: default shell, splash screen, dotfiles, daemons, firewall"
     echo " 6. Clean up"
@@ -170,12 +170,23 @@ install_packages() {
 
 # -- Fixes -------------------------------------------------------------------
 
-# Fixes brightness control issues for hybrid AMD-NVIDIA GPU by enabling
-# NVIDIA WMI EC module.
+# Fixes brightness control on hybrid AMD-NVIDIA Legion laptops by routing it
+# through the EC firmware (nvidia_wmi_ec). This panel's real level lives in
+# the EC: reads/writes anywhere else are theater, and any dGPU power
+# transition makes the EC re-apply its dim while the OS value stays put (hence
+# "unplug dims, any keypress restores" — the keypress only worked via its GPU
+# wake-up side effect). Forcing acpi_backlight=nvidia_wmi_ec is what keeps this
+# a SINGLE writer: amdgpu skips its decorative amdgpu_bl node and
+# nvidia-modeset defers instead of registering a fighting nvidia_0 node, so
+# every tool targets the same EC-backed device. Coarse 0-100 steps are the
+# accepted tradeoff for stability; the d3cold pin in optimize_nvidia_rtd3 stops
+# the EC from dimming on dGPU power-cuts.
+# amdgpu.abmlevel=0 disables content-adaptive dimming (also looks like jumps),
+# video.brightness_switch_enabled=0 leaves keys to userspace (swayosd) only.
 fix_display_brightness() {
-    _log_info "Configuring NVIDIA WMI EC backlight parameter..."
-    _add_kernel_params "acpi_backlight=nvidia_wmi_ec"
-    _log_ok "Brightness boot parameter applied."
+    _log_info "Configuring EC (nvidia_wmi_ec) backlight parameters..."
+    _add_kernel_params "acpi_backlight=nvidia_wmi_ec" "amdgpu.abmlevel=0" "video.brightness_switch_enabled=0"
+    _log_ok "Brightness boot parameters applied."
 }
 
 # Fixes Lofree keyboard function keys by setting hid_apple fnmode parameter.
@@ -194,13 +205,20 @@ fix_fn_keys_lofree() {
 fix_touchpad() {
     _log_info "Fixing Lenovo Legion touchpad (I2C PM bug)..."
 
-    # Disable runtime power management for the AMD I2C controller and I2C HID touchpad to prevent timeout freezes
+    # Keep runtime PM disabled ONLY for the touchpad path: the AMD I2C
+    # controller (AMDI0010), its ELAN/CUST client, and the i2c-hid layers.
+    # A bare SUBSYSTEM=="i2c" match would pin every I2C bus to "on", including
+    # the AMD eDP AUX channels and the NVIDIA I2C buses, which blocks NVIDIA
+    # RTD3 autosuspend and panel power management. Each aborted/retried suspend
+    # re-probes the backlight (see nvidia-modeset "attempting to use ACPI
+    # backlight" spam), so the over-broad rule shows up as jumping brightness.
     sudo tee /etc/udev/rules.d/50-touchpad-pm.rules >/dev/null <<'EOF'
-ACTION=="add", SUBSYSTEM=="platform", KERNEL=="AMDI0010:03", ATTR{power/control}="on"
-ACTION=="add", SUBSYSTEM=="platform", KERNEL=="CUST0001:00", ATTR{power/control}="on"
-ACTION=="add", SUBSYSTEM=="i2c", ATTR{power/control}="on"
-ACTION=="add", SUBSYSTEM=="i2c_hid", ATTR{power/control}="on"
-ACTION=="add", SUBSYSTEM=="i2c_hid_acpi", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="platform", KERNEL=="AMDI0010:*", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="platform", KERNEL=="CUST0001:*", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="i2c", KERNEL=="*ELAN*", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="i2c", KERNEL=="*CUST*", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="i2c_hid", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="i2c_hid_acpi", TEST=="power/control", ATTR{power/control}="on"
 EOF
     sudo udevadm control --reload-rules
 
@@ -277,6 +295,10 @@ ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000
 ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="auto"
 ACTION=="unbind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="on"
 ACTION=="unbind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="on"
+# Pin the dGPU (and its audio function) to D3hot: the D3cold power-cut makes
+# the EC dim the panel with no OS-visible change, while D3hot sleeps just
+# fine. Costs ~1W vs D3cold; buys a stable backlight on battery.
+ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", TEST=="d3cold_allowed", ATTR{d3cold_allowed}="0"
 EOF
 
     sudo udevadm control --reload-rules
