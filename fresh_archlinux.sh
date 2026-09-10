@@ -147,6 +147,7 @@ mount_external_home() {
 install_and_setup_paru() {
     if ! command -v paru &>/dev/null; then
         sudo pacman -S --needed --noconfirm git base-devel rust
+        rm -rf /tmp/paru
         (
             cd /tmp
             git clone https://aur.archlinux.org/paru.git
@@ -206,19 +207,27 @@ fix_touchpad() {
     _log_info "Fixing Lenovo Legion touchpad (I2C PM bug)..."
 
     # Keep runtime PM disabled ONLY for the touchpad path: the AMD I2C
-    # controller (AMDI0010), its ELAN/CUST client, and the i2c-hid layers.
-    # A bare SUBSYSTEM=="i2c" match would pin every I2C bus to "on", including
-    # the AMD eDP AUX channels and the NVIDIA I2C buses, which blocks NVIDIA
-    # RTD3 autosuspend and panel power management. Each aborted/retried suspend
-    # re-probes the backlight (see nvidia-modeset "attempting to use ACPI
-    # backlight" spam), so the over-broad rule shows up as jumping brightness.
+    # controller (AMDI0010), its ELAN/CUST client, and the HID/input layers
+    # on top of it. A bare SUBSYSTEM=="i2c" match would pin every I2C bus to
+    # "on", including the AMD eDP AUX channels and the NVIDIA I2C buses,
+    # which blocks NVIDIA RTD3 autosuspend and panel power management. Each
+    # aborted/retried suspend re-probes the backlight (see nvidia-modeset
+    # "attempting to use ACPI backlight" spam), so the over-broad rule shows
+    # up as jumping brightness.
+    #
+    # NOTE: there are no "i2c_hid"/"i2c_hid_acpi" buses (see /sys/bus), so
+    # rules matching those subsystems never fire. i2c_hid_acpi is just the
+    # DRIVER bound to the SUBSYSTEM=="i2c" client (i2c-ELAN06FA:00), and the
+    # touchpad itself lives at SUBSYSTEM=="hid" (DRIVER=="hid-multitouch")
+    # with SUBSYSTEM=="input" children. Match those instead, scoped by the
+    # parent's name so other HID devices keep their default PM policy.
     sudo tee /etc/udev/rules.d/50-touchpad-pm.rules >/dev/null <<'EOF'
 ACTION=="add", SUBSYSTEM=="platform", KERNEL=="AMDI0010:*", TEST=="power/control", ATTR{power/control}="on"
 ACTION=="add", SUBSYSTEM=="platform", KERNEL=="CUST0001:*", TEST=="power/control", ATTR{power/control}="on"
 ACTION=="add", SUBSYSTEM=="i2c", KERNEL=="*ELAN*", TEST=="power/control", ATTR{power/control}="on"
 ACTION=="add", SUBSYSTEM=="i2c", KERNEL=="*CUST*", TEST=="power/control", ATTR{power/control}="on"
-ACTION=="add", SUBSYSTEM=="i2c_hid", TEST=="power/control", ATTR{power/control}="on"
-ACTION=="add", SUBSYSTEM=="i2c_hid_acpi", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="hid", ATTRS{name}=="ELAN06FA:00", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="input", ATTRS{name}=="ELAN06FA:00*", TEST=="power/control", ATTR{power/control}="on"
 EOF
     sudo udevadm control --reload-rules
 
@@ -347,7 +356,7 @@ optimize_bootloader_timeout() {
 # Changes the user's default login shell to zsh.
 configure_default_shell() {
     local zsh_path="/usr/bin/zsh"
-    if [ "$SHELL" != "$zsh_path" ]; then
+    if [ "$(getent passwd "$USER" | cut -d: -f7)" != "$zsh_path" ]; then
         _log_info "Changing default shell to zsh for $USER..."
         sudo chsh -s "$zsh_path" "$USER"
         _log_ok "Default shell changed to zsh."
@@ -596,7 +605,7 @@ clean_dot_desktop() {
             local sys_file="${dir}/${app}.desktop"
             if [ -f "$sys_file" ]; then
                 cp "$sys_file" "$override_dir/"
-                sed -i '/^\[Desktop Entry\]$/a\NoDisplay=true\nHidden=true' "$override_dir/${app}.desktop"
+                grep -q '^NoDisplay=true$' "$override_dir/${app}.desktop" || sed -i '/^\[Desktop Entry\]$/a\NoDisplay=true\nHidden=true' "$override_dir/${app}.desktop"
                 break
             fi
         done
