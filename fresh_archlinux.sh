@@ -28,6 +28,7 @@ main() {
     fix_display_brightness
     fix_fn_keys_lofree
     fix_touchpad
+    fix_external_monitor_74hz
 
     # -- Optimizations ------------
     optimize_base_boot_params
@@ -93,7 +94,7 @@ welcome_message() {
     echo -e "${BLUE}=== ACTION PLAN ===${NC}"
     echo " 1. Mount external home"
     echo " 2. Install:   package manager, packages, flatpaks"
-    echo " 3. Fix:       touchpad, brightness (ec+d3hot), lofree fn keys"
+    echo " 3. Fix:       touchpad, brightness (ec+d3hot), lofree fn keys, iiyama 74Hz EDID"
     echo " 4. Optimize:  boot_params, mkinitcpio_hooks, nvidia, bootloader_timeout"
     echo " 5. Configure: default shell, splash screen, dotfiles, daemons, firewall"
     echo " 6. Clean up"
@@ -111,7 +112,7 @@ _log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
 # Mounts an external drive as /home if its UUID matches the expected value.
 mount_external_home() {
-    local UUID="f49038fe-5540-46a8-82a5-40f6ed890d8d"
+    local UUID="${EXTERNAL_HOME_UUID:-f49038fe-5540-46a8-82a5-40f6ed890d8d}"
     _log_info "Configuring external drive with UUID: $UUID"
 
     if ! blkid -U "$UUID" >/dev/null; then
@@ -183,7 +184,7 @@ install_packages() {
 # accepted tradeoff for stability; the d3cold pin in optimize_nvidia_rtd3 stops
 # the EC from dimming on dGPU power-cuts.
 # amdgpu.abmlevel=0 disables content-adaptive dimming (also looks like jumps),
-# video.brightness_switch_enabled=0 leaves keys to userspace (swayosd) only.
+# video.brightness_switch_enabled=0 leaves keys to userspace (quickshell OSD) only.
 fix_display_brightness() {
     _log_info "Configuring EC (nvidia_wmi_ec) backlight parameters..."
     _add_kernel_params "acpi_backlight=nvidia_wmi_ec" "amdgpu.abmlevel=0" "video.brightness_switch_enabled=0"
@@ -234,14 +235,110 @@ EOF
     _log_ok "Touchpad PM udev rules applied."
 }
 
+# Overclocks external iiyama ProLite PL2792Q monitor from 60Hz to 74Hz (2560x1440).
+# The monitor's HDMI 1.4 EDID block advertises a 59.95Hz Detailed Timing Descriptor
+# and a conservative 89 kHz horizontal sync limit, causing nvidia-drm atomic modesetting
+# to reject custom modelines with -EINVAL. However, the panel natively supports up to
+# 75Hz (TMDS clock ~298 MHz, H-sync ~110 kHz) without dropped frames or artifacts.
+# Because nvidia-drm ignores drm.edid_firmware kernel parameters, this fix installs
+# a patched EDID binary and an automated systemd/udev mechanism to inject the EDID into
+# the DRM debugfs override node (/sys/kernel/debug/dri/0/DP-1/edid_override) whenever
+# the iiyama display is connected.
+fix_external_monitor_74hz() {
+    _log_info "Configuring 74Hz EDID override for iiyama PL2792Q external monitor..."
+
+    # 1. Install patched 74Hz EDID binary (256 bytes) to standard firmware path
+    sudo mkdir -p /usr/lib/firmware/edid
+    base64 -d <<'EOF' | sudo tee /usr/lib/firmware/edid/iiyama_pl2792q_74hz.bin >/dev/null
+AP///////wAmzTBmkAcAAA4fAQOAPCJ46gydq1VMoCQNUlQlSwCVAKnAqUCzANHA0QDhAAEBcXQAoKCgKVAwIDUAVVAhAAAaAAAA/wAxMTUyMDExNDAxOTM2AAAA/QAyTB5zIgAKICAgICAgAAAA/ABQTDI3OTJRCiAgICAgASYCAyTxTxAFBAMCARESExQGBxUWHyMJBweDAQAAZwMMABAAOEQCOoAYcTgtQFgsRQBVUCEAAB4BHYAYcRwWIFgsJQBVUCEAAJ4BHQByUdAeIG4oVQBVUCEAAB6MCtCKIOAtEBA+lgBVUCEAABgAAAAAAAAAAAAAAAAAAAAAAAAATQ==
+EOF
+    sudo chmod 644 /usr/lib/firmware/edid/iiyama_pl2792q_74hz.bin
+
+    # 2. Install runtime injection helper script
+    sudo tee /usr/local/bin/apply-iiyama-edid.sh >/dev/null <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+EDID_FILE="/usr/lib/firmware/edid/iiyama_pl2792q_74hz.bin"
+TARGET_SHA="40afcfcd7edc070860262f4ecbb5b7f130c8a84b3b4439319ad62cdb31f1547d"
+[ -f "$EDID_FILE" ] || exit 0
+
+for conn in /sys/class/drm/card*-*; do
+    [ -d "$conn" ] || continue
+    [ -f "$conn/status" ] || continue
+    device_path=$(readlink -f "$conn/device")
+    vendor=$(cat "$device_path/vendor" 2>/dev/null || cat "$device_path/device/vendor" 2>/dev/null || true)
+    [ "$vendor" = "0x10de" ] || continue
+
+    base=$(basename "$conn")
+    card_num=$(echo "$base" | sed -E 's/card([0-9]+)-.*/\1/')
+    conn_name=$(echo "$base" | sed -E 's/card[0-9]+-(.*)/\1/')
+
+    override_path="/sys/kernel/debug/dri/$card_num/$conn_name/edid_override"
+    hotplug_path="/sys/kernel/debug/dri/$card_num/$conn_name/trigger_hotplug"
+    [ -w "$override_path" ] || continue
+
+    status=$(cat "$conn/status" 2>/dev/null || echo "unknown")
+    if [ "$status" = "connected" ]; then
+        if grep -q "PL2792Q" "$conn/edid" 2>/dev/null; then
+            current_sha=$(head -c 256 "$conn/edid" 2>/dev/null | sha256sum | cut -d' ' -f1 || true)
+            if [ "$current_sha" != "$TARGET_SHA" ]; then
+                cat "$EDID_FILE" > "$override_path"
+                [ -w "$hotplug_path" ] && echo 1 > "$hotplug_path" 2>/dev/null || true
+            fi
+        fi
+    elif [ "$status" = "disconnected" ]; then
+        echo -n reset > "$override_path" 2>/dev/null || true
+    fi
+done
+EOF
+    sudo chmod 755 /usr/local/bin/apply-iiyama-edid.sh
+
+    # 3. Systemd oneshot service for boot-time application
+    sudo tee /etc/systemd/system/iiyama-edid-override.service >/dev/null <<'EOF'
+[Unit]
+Description=Apply 74Hz EDID override for iiyama PL2792Q monitor
+After=sys-kernel-debug.mount
+RequiresMountsFor=/sys/kernel/debug
+Before=display-manager.service ly@tty1.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/apply-iiyama-edid.sh
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # 4. Udev rule for hotplug application
+    sudo tee /etc/udev/rules.d/98-iiyama-edid.rules >/dev/null <<'EOF'
+ACTION=="add|change", SUBSYSTEM=="drm", KERNEL=="card*-*", RUN+="/usr/local/bin/apply-iiyama-edid.sh"
+EOF
+
+    sudo udevadm control --reload-rules
+    sudo systemctl daemon-reload
+    sudo systemctl enable iiyama-edid-override.service 2>/dev/null || true
+    sudo /usr/local/bin/apply-iiyama-edid.sh 2>/dev/null || true
+
+    _log_ok "74Hz EDID override configured for iiyama PL2792Q."
+}
+
 # Adds or replaces kernel boot parameters in /etc/kernel/cmdline.
 _add_kernel_params() {
     local -a params=("$@")
     local cmdline_file="/etc/kernel/cmdline"
 
     if [ ! -f "$cmdline_file" ]; then
-        _log_error "$cmdline_file does not exist!"
-        return 1
+        _log_info "Initializing $cmdline_file with root partition..."
+        sudo mkdir -p "$(dirname "$cmdline_file")"
+        local root_part
+        root_part=$(findmnt / -o PARTUUID -n 2>/dev/null || true)
+        if [ -n "$root_part" ]; then
+            echo "root=PARTUUID=$root_part rw rootfstype=ext4" | sudo tee "$cmdline_file" >/dev/null
+        else
+            echo "rw" | sudo tee "$cmdline_file" >/dev/null
+        fi
     fi
 
     _log_info "Adding boot parameters: ${params[*]}"
@@ -340,8 +437,8 @@ optimize_mkinitcpio_compression() {
 optimize_bootloader_timeout() {
     local loader_file="/boot/loader/loader.conf"
     if ! sudo bootctl is-installed 2>/dev/null; then
-        _log_warn "systemd-boot not installed — skipping."
-        return 0
+        _log_info "Installing systemd-boot..."
+        sudo bootctl install
     fi
     sudo mkdir -p "/boot/loader"
     if [ -f "$loader_file" ]; then
@@ -405,8 +502,6 @@ configure_daemons() {
     local sys_disable=(
         fwupd-refresh.timer               # for firmware updates
         fwupd-refresh.service             # for firmware updates
-        cups.service                      # for printing
-        avahi-daemon.service              # for hostname discovery
         NetworkManager-dispatcher.service # runs 0 scripts after nm changes it's state
         systemd-userdbd.socket            # user database (I am the only one)
         remote-fs.target                  # remote filesystems
@@ -420,12 +515,14 @@ configure_daemons() {
         bluetooth.service
         tailscaled.service
         upower.service
-        avahi-daemon.socket # for hostname discovery
+        avahi-daemon.socket # for printer/hostname discovery
+        avahi-daemon.service
         pcscd.socket        # for YubiKey support
-        cups.socket         # for printing
-        sshd.socket
-        swaync.service # Notification manager
+        cups.socket         # for printing (socket activation)
+        cups.service        # for printing
+        sshd.service
         paccache.timer
+        iiyama-edid-override.service
     )
 
     local sys_mask=(
@@ -450,8 +547,9 @@ configure_daemons() {
         pipewire.service        # audio
         pipewire-pulse.service  # audio
         hyprpolkitagent.service # for password popups
-        hypridle.service        # idle & screen lock daemon
-        rclone-sync.timer       # my own cloud sync daemon
+        hypridle.service                      # idle & screen lock daemon
+        wayland-pipewire-idle-inhibit.service # idle inhibitor for pipewire audio
+        rclone-sync.timer                     # my own cloud sync daemon
     )
 
     local usr_mask=(
@@ -476,6 +574,10 @@ configure_firewall() {
     _log_info "Configuring firewall"
     sudo ufw default deny incoming
     sudo ufw default allow outgoing
+    sudo ufw allow 53317 comment 'LocalSend'
+    sudo ufw allow 631/tcp comment 'IPP printing'
+    sudo ufw allow 5353/udp comment 'mDNS discovery'
+    sudo ufw allow in on tailscale0 comment 'Tailscale network'
     sudo ufw --force enable
 
     # Override ufw.service to avoid blocking sysinit.target on boot
@@ -503,13 +605,12 @@ EOF
     _log_ok "Reflector configured and reflector.timer enabled."
 }
 
-# Generates launcher scripts and desktop entries for Google Calendar, Gmail, WhatsApp, and Tasks PWAs.
+# Generates desktop entries and downloads icons for Google Calendar, Gmail, WhatsApp, Tasks, and Gemini PWAs.
 configure_progressive_webapps() {
-    local bin_dir="$HOME/.local/bin"
     local desktop_dir="$HOME/.local/share/applications"
     local icon_dir="$HOME/.local/share/icons/hicolor/scalable/apps"
 
-    mkdir -p "$bin_dir" "$desktop_dir" "$icon_dir"
+    mkdir -p "$desktop_dir" "$icon_dir"
 
     _log_info "Downloading app icons..."
 
@@ -533,29 +634,19 @@ configure_progressive_webapps() {
         "Gemini|https://gemini.google.com|google-gemini|Network;AI;Google;"
     )
 
-    local class bin desktop
+    local class desktop
     for app in "${apps[@]}"; do
         IFS='|' read -r name url icon categories <<<"$app"
         class="$(echo "$name" | tr '[:upper:]' '[:lower:]')"
-        bin="$bin_dir/$class"
         desktop="$desktop_dir/$class.desktop"
 
-        rm -f "$bin" "$desktop"
-
-        cat >"$bin" <<PWAEOF
-#!/bin/bash
-chromium --ozone-platform-hint=auto \\
-  --user-data-dir="\$HOME/.config/chromium" \\
-  --enable-extensions \\
-  --class="$class" \\
-  --app="$url"
-PWAEOF
-        chmod +x "$bin"
+        # Clean up legacy launcher script in ~/.local/bin if present
+        rm -f "$HOME/.local/bin/$class" "$desktop"
 
         cat >"$desktop" <<DESKTOPEOF
 [Desktop Entry]
 Name=$name
-Exec=$class
+Exec=chromium --ozone-platform-hint=auto --enable-extensions --class=$class --app=$url
 Icon=$icon
 Terminal=false
 Type=Application
@@ -594,11 +685,17 @@ clean_dot_desktop() {
     )
 
     local apps=(
-        libreoffice-startcenter libreoffice-writer libreoffice-calc
-        libreoffice-impress libreoffice-draw libreoffice-math
+        libreoffice-startcenter
+        libreoffice-draw libreoffice-math
         libreoffice-base avahi-discover bssh bvnc cmake-gui
-        com.prusa3d.PrusaSlicer.GCodeViewer
+        com.prusa3d.PrusaSlicer.GCodeViewer nvidia-settings
     )
+
+    # Un-hide Writer / Calc / Impress in case a previous run hid them:
+    # leftover NoDisplay=true overrides would keep them invisible otherwise.
+    rm -f "$override_dir"/libreoffice-writer.desktop \
+        "$override_dir"/libreoffice-calc.desktop \
+        "$override_dir"/libreoffice-impress.desktop
 
     for app in "${apps[@]}"; do
         for dir in "${search_dirs[@]}"; do
@@ -617,11 +714,14 @@ clean_dot_desktop() {
 # Runs the sysclean script to remove orphaned packages and package cache.
 cleanup() {
     _log_info "Cleaning up..."
-    if [ -x "$HOME/.local/bin/sysclean" ]; then
+    if command -v sysclean &>/dev/null; then
+        sysclean
+        _log_ok "System cleanup complete."
+    elif [ -x "$HOME/.local/bin/sysclean" ]; then
         "$HOME/.local/bin/sysclean"
         _log_ok "System cleanup complete."
     else
-        _log_warn "sysclean not found at $HOME/.local/bin/sysclean — skipping."
+        _log_warn "sysclean not found — skipping."
     fi
 }
 
