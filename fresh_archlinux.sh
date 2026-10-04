@@ -181,8 +181,9 @@ install_packages() {
 # a SINGLE writer: amdgpu skips its decorative amdgpu_bl node and
 # nvidia-modeset defers instead of registering a fighting nvidia_0 node, so
 # every tool targets the same EC-backed device. Coarse 0-100 steps are the
-# accepted tradeoff for stability; the d3cold pin in optimize_nvidia_rtd3 stops
-# the EC from dimming on dGPU power-cuts.
+# accepted tradeoff for stability. dGPU RTD3 D3cold is enabled for maximum
+# battery life (~8W idle vs ~17W in D3hot); quickshell SystemStatus restores
+# the backlight level (+0%) when dGPU enters D3cold to counter EC dimming.
 # amdgpu.abmlevel=0 disables content-adaptive dimming (also looks like jumps),
 # video.brightness_switch_enabled=0 leaves keys to userspace (quickshell OSD) only.
 fix_display_brightness() {
@@ -241,9 +242,22 @@ EOF
 # to reject custom modelines with -EINVAL. However, the panel natively supports up to
 # 75Hz (TMDS clock ~298 MHz, H-sync ~110 kHz) without dropped frames or artifacts.
 # Because nvidia-drm ignores drm.edid_firmware kernel parameters, this fix installs
-# a patched EDID binary and an automated systemd/udev mechanism to inject the EDID into
-# the DRM debugfs override node (/sys/kernel/debug/dri/0/DP-1/edid_override) whenever
-# the iiyama display is connected.
+# a patched EDID binary (whose PREFERRED timing already IS 2560x1440@74, so
+# Hyprland `preferred` resolves to 74Hz once the override is active) and an
+# automated systemd/udev mechanism to inject the EDID into the DRM debugfs
+# override nodes whenever the iiyama display is connected.
+#
+# CAUTION (Oct 2026 post-mortem, kernel panic "System is deadlocked on memory"):
+# forcing `2560x1440@74` in Hyprland BEFORE this override lands on the active
+# connector makes nvidia-modeset spin on "Error while waiting for GPU progress",
+# leaking kmalloc-128 (~14 GB observed) until OOM -> DRM panic blue screen.
+# The override MUST therefore (a) actually run on hotplug (the old
+# ACTION=="add|change" rule never matched anything - `|` is literal in udev),
+# (b) cover every GPU (USB-C DP alt-mode on this Legion enumerates on the AMD
+# iGPU, not only 0x10de), and (c) be flock-serialized + SHA-guarded so the
+# edid_override + trigger_hotplug pulse fires exactly once. Hyprland configs
+# must use `preferred` (== 74Hz once patched) instead of a hardcoded @74 so a
+# not-yet-overridden hotplug safely falls back to 60Hz instead of panicking.
 fix_external_monitor_74hz() {
     _log_info "Configuring 74Hz EDID override for iiyama PL2792Q external monitor..."
 
@@ -254,40 +268,65 @@ AP///////wAmzTBmkAcAAA4fAQOAPCJ46gydq1VMoCQNUlQlSwCVAKnAqUCzANHA0QDhAAEBcXQAoKCg
 EOF
     sudo chmod 644 /usr/lib/firmware/edid/iiyama_pl2792q_74hz.bin
 
-    # 2. Install runtime injection helper script
+    # 2. Install runtime injection helper script.
+    # Serialize with flock (udev fires one event per DRM connector -> storm),
+    # match by EDID content on ANY gpu (no vendor filter: USB-C DP alt-mode
+    # lands on amdgpu here), wait briefly for the EDID to appear after
+    # hotplug, and pulse trigger_hotplug exactly once per needed change.
     sudo tee /usr/local/bin/apply-iiyama-edid.sh >/dev/null <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
 EDID_FILE="/usr/lib/firmware/edid/iiyama_pl2792q_74hz.bin"
 TARGET_SHA="40afcfcd7edc070860262f4ecbb5b7f130c8a84b3b4439319ad62cdb31f1547d"
+LOCK_FILE="/run/lock/apply-iiyama-edid.lock"
+
 [ -f "$EDID_FILE" ] || exit 0
+[ -d /sys/kernel/debug/dri ] || exit 0
+mkdir -p /run/lock 2>/dev/null || true
+exec 9>"$LOCK_FILE" 2>/dev/null || exit 0
+flock -n 9 || exit 0
 
 for conn in /sys/class/drm/card*-*; do
     [ -d "$conn" ] || continue
     [ -f "$conn/status" ] || continue
-    device_path=$(readlink -f "$conn/device")
-    vendor=$(cat "$device_path/vendor" 2>/dev/null || cat "$device_path/device/vendor" 2>/dev/null || true)
-    [ "$vendor" = "0x10de" ] || continue
 
     base=$(basename "$conn")
     card_num=$(echo "$base" | sed -E 's/card([0-9]+)-.*/\1/')
     conn_name=$(echo "$base" | sed -E 's/card[0-9]+-(.*)/\1/')
+    [ -n "$card_num" ] && [ -n "$conn_name" ] || continue
 
     override_path="/sys/kernel/debug/dri/$card_num/$conn_name/edid_override"
     hotplug_path="/sys/kernel/debug/dri/$card_num/$conn_name/trigger_hotplug"
-    [ -w "$override_path" ] || continue
+    [ -e "$override_path" ] || continue
 
     status=$(cat "$conn/status" 2>/dev/null || echo "unknown")
     if [ "$status" = "connected" ]; then
+        # EDID can lag behind the hotplug event (dock/hub enumeration);
+        # poll briefly instead of acting on an empty file.
+        edid_ok=0
+        for _ in 1 2 3 4 5 6; do
+            if [ -s "$conn/edid" ]; then
+                edid_ok=1
+                break
+            fi
+            sleep 0.5
+        done
+        [ "$edid_ok" = "1" ] || continue
         if grep -q "PL2792Q" "$conn/edid" 2>/dev/null; then
             current_sha=$(head -c 256 "$conn/edid" 2>/dev/null | sha256sum | cut -d' ' -f1 || true)
             if [ "$current_sha" != "$TARGET_SHA" ]; then
-                cat "$EDID_FILE" > "$override_path"
-                [ -w "$hotplug_path" ] && echo 1 > "$hotplug_path" 2>/dev/null || true
+                if cat "$EDID_FILE" > "$override_path" 2>/dev/null; then
+                    # Single reprobe pulse; the SHA guard above makes a
+                    # re-triggered udev event a no-op instead of a loop.
+                    [ -e "$hotplug_path" ] && echo 1 > "$hotplug_path" 2>/dev/null || true
+                    logger -t apply-iiyama-edid "applied 74Hz EDID override on $base" 2>/dev/null || true
+                fi
             fi
         fi
     elif [ "$status" = "disconnected" ]; then
+        # Drop a stale override so a different monitor on the same port is
+        # not masked by it. Cheap and idempotent; serialized by flock.
         echo -n reset > "$override_path" 2>/dev/null || true
     fi
 done
@@ -298,7 +337,8 @@ EOF
     sudo tee /etc/systemd/system/iiyama-edid-override.service >/dev/null <<'EOF'
 [Unit]
 Description=Apply 74Hz EDID override for iiyama PL2792Q monitor
-After=sys-kernel-debug.mount
+Wants=sys-kernel-debug.mount
+After=sys-kernel-debug.mount systemd-udevd.service
 RequiresMountsFor=/sys/kernel/debug
 Before=display-manager.service ly@tty1.service
 
@@ -311,9 +351,11 @@ ExecStart=/usr/local/bin/apply-iiyama-edid.sh
 WantedBy=multi-user.target
 EOF
 
-    # 4. Udev rule for hotplug application
+    # 4. Udev rules for hotplug application. NOTE: `|` is literal in udev
+    # match syntax, so ACTION=="add|change" NEVER fires - one line per action.
     sudo tee /etc/udev/rules.d/98-iiyama-edid.rules >/dev/null <<'EOF'
-ACTION=="add|change", SUBSYSTEM=="drm", KERNEL=="card*-*", RUN+="/usr/local/bin/apply-iiyama-edid.sh"
+ACTION=="add", SUBSYSTEM=="drm", KERNEL=="card[0-9]*", RUN+="/usr/local/bin/apply-iiyama-edid.sh"
+ACTION=="change", SUBSYSTEM=="drm", KERNEL=="card[0-9]*", RUN+="/usr/local/bin/apply-iiyama-edid.sh"
 EOF
 
     sudo udevadm control --reload-rules
@@ -401,10 +443,11 @@ ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000
 ACTION=="bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="auto"
 ACTION=="unbind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", TEST=="power/control", ATTR{power/control}="on"
 ACTION=="unbind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="on"
-# Pin the dGPU (and its audio function) to D3hot: the D3cold power-cut makes
-# the EC dim the panel with no OS-visible change, while D3hot sleeps just
-# fine. Costs ~1W vs D3cold; buys a stable backlight on battery.
-ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", TEST=="d3cold_allowed", ATTR{d3cold_allowed}="0"
+# Allow dGPU (and its audio function) to enter D3cold: saves ~8.5W on battery,
+# dropping idle from ~17W to ~8W. The Lenovo EC firmware dims the panel on
+# D3cold power cut, which is handled in userspace (quickshell SystemStatus.qml)
+# by re-applying backlight (+0%) when dGPU transitions to suspended.
+ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", TEST=="d3cold_allowed", ATTR{d3cold_allowed}="1"
 EOF
 
     sudo udevadm control --reload-rules
