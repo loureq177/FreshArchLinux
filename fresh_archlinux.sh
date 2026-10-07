@@ -63,7 +63,6 @@ check_user() {
         exit 1
     fi
     sudo -v
-    # Background loop refreshing sudo timestamp until the script exits.
     sudo_keepalive() {
         while true; do
             sudo -n true
@@ -76,7 +75,6 @@ check_user() {
     trap 'kill $KEEPALIVE_PID 2>/dev/null' EXIT
 }
 
-# Prints the ASCII banner, action plan, and waits for user confirmation before proceeding.
 welcome_message() {
     L1="    ____               __        ___            __      __                    "
     L2="   / __/_______  _____/ /_      /   |  ________/ /___  / /   ( )___  __  ___  __"
@@ -144,7 +142,6 @@ mount_external_home() {
     _log_ok "Home drive ready."
 }
 
-# Installs the paru AUR helper if missing and performs a full system upgrade.
 install_and_setup_paru() {
     if ! command -v paru &>/dev/null; then
         sudo pacman -S --needed --noconfirm git base-devel rust
@@ -172,20 +169,6 @@ install_packages() {
 
 # -- Fixes -------------------------------------------------------------------
 
-# Fixes brightness control on hybrid AMD-NVIDIA Legion laptops by routing it
-# through the EC firmware (nvidia_wmi_ec). This panel's real level lives in
-# the EC: reads/writes anywhere else are theater, and any dGPU power
-# transition makes the EC re-apply its dim while the OS value stays put (hence
-# "unplug dims, any keypress restores" — the keypress only worked via its GPU
-# wake-up side effect). Forcing acpi_backlight=nvidia_wmi_ec is what keeps this
-# a SINGLE writer: amdgpu skips its decorative amdgpu_bl node and
-# nvidia-modeset defers instead of registering a fighting nvidia_0 node, so
-# every tool targets the same EC-backed device. Coarse 0-100 steps are the
-# accepted tradeoff for stability. dGPU RTD3 D3cold is enabled for maximum
-# battery life (~8W idle vs ~17W in D3hot); quickshell SystemStatus restores
-# the backlight level (+0%) when dGPU enters D3cold to counter EC dimming.
-# amdgpu.abmlevel=0 disables content-adaptive dimming (also looks like jumps),
-# video.brightness_switch_enabled=0 leaves keys to userspace (quickshell OSD) only.
 fix_display_brightness() {
     _log_info "Configuring EC (nvidia_wmi_ec) backlight parameters..."
     _add_kernel_params "acpi_backlight=nvidia_wmi_ec" "amdgpu.abmlevel=0" "video.brightness_switch_enabled=0"
@@ -208,21 +191,6 @@ fix_fn_keys_lofree() {
 fix_touchpad() {
     _log_info "Fixing Lenovo Legion touchpad (I2C PM bug)..."
 
-    # Keep runtime PM disabled ONLY for the touchpad path: the AMD I2C
-    # controller (AMDI0010), its ELAN/CUST client, and the HID/input layers
-    # on top of it. A bare SUBSYSTEM=="i2c" match would pin every I2C bus to
-    # "on", including the AMD eDP AUX channels and the NVIDIA I2C buses,
-    # which blocks NVIDIA RTD3 autosuspend and panel power management. Each
-    # aborted/retried suspend re-probes the backlight (see nvidia-modeset
-    # "attempting to use ACPI backlight" spam), so the over-broad rule shows
-    # up as jumping brightness.
-    #
-    # NOTE: there are no "i2c_hid"/"i2c_hid_acpi" buses (see /sys/bus), so
-    # rules matching those subsystems never fire. i2c_hid_acpi is just the
-    # DRIVER bound to the SUBSYSTEM=="i2c" client (i2c-ELAN06FA:00), and the
-    # touchpad itself lives at SUBSYSTEM=="hid" (DRIVER=="hid-multitouch")
-    # with SUBSYSTEM=="input" children. Match those instead, scoped by the
-    # parent's name so other HID devices keep their default PM policy.
     sudo tee /etc/udev/rules.d/50-touchpad-pm.rules >/dev/null <<'EOF'
 ACTION=="add", SUBSYSTEM=="platform", KERNEL=="AMDI0010:*", TEST=="power/control", ATTR{power/control}="on"
 ACTION=="add", SUBSYSTEM=="platform", KERNEL=="CUST0001:*", TEST=="power/control", ATTR{power/control}="on"
@@ -236,28 +204,6 @@ EOF
     _log_ok "Touchpad PM udev rules applied."
 }
 
-# Overclocks external iiyama ProLite PL2792Q monitor from 60Hz to 74Hz (2560x1440).
-# The monitor's HDMI 1.4 EDID block advertises a 59.95Hz Detailed Timing Descriptor
-# and a conservative 89 kHz horizontal sync limit, causing nvidia-drm atomic modesetting
-# to reject custom modelines with -EINVAL. However, the panel natively supports up to
-# 75Hz (TMDS clock ~298 MHz, H-sync ~110 kHz) without dropped frames or artifacts.
-# Because nvidia-drm ignores drm.edid_firmware kernel parameters, this fix installs
-# a patched EDID binary (whose PREFERRED timing already IS 2560x1440@74, so
-# Hyprland `preferred` resolves to 74Hz once the override is active) and an
-# automated systemd/udev mechanism to inject the EDID into the DRM debugfs
-# override nodes whenever the iiyama display is connected.
-#
-# CAUTION (Oct 2026 post-mortem, kernel panic "System is deadlocked on memory"):
-# forcing `2560x1440@74` in Hyprland BEFORE this override lands on the active
-# connector makes nvidia-modeset spin on "Error while waiting for GPU progress",
-# leaking kmalloc-128 (~14 GB observed) until OOM -> DRM panic blue screen.
-# The override MUST therefore (a) actually run on hotplug (the old
-# ACTION=="add|change" rule never matched anything - `|` is literal in udev),
-# (b) cover every GPU (USB-C DP alt-mode on this Legion enumerates on the AMD
-# iGPU, not only 0x10de), and (c) be flock-serialized + SHA-guarded so the
-# edid_override + trigger_hotplug pulse fires exactly once. Hyprland configs
-# must use `preferred` (== 74Hz once patched) instead of a hardcoded @74 so a
-# not-yet-overridden hotplug safely falls back to 60Hz instead of panicking.
 fix_external_monitor_74hz() {
     _log_info "Configuring 74Hz EDID override for iiyama PL2792Q external monitor..."
 
@@ -268,67 +214,19 @@ AP///////wAmzTBmkAcAAA4fAQOAPCJ46gydq1VMoCQNUlQlSwCVAKnAqUCzANHA0QDhAAEBcXQAoKCg
 EOF
     sudo chmod 644 /usr/lib/firmware/edid/iiyama_pl2792q_74hz.bin
 
-    # 2. Install runtime injection helper script.
-    # Serialize with flock (udev fires one event per DRM connector -> storm),
-    # match by EDID content on ANY gpu (no vendor filter: USB-C DP alt-mode
-    # lands on amdgpu here), wait briefly for the EDID to appear after
-    # hotplug, and pulse trigger_hotplug exactly once per needed change.
     sudo tee /usr/local/bin/apply-iiyama-edid.sh >/dev/null <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-
 EDID_FILE="/usr/lib/firmware/edid/iiyama_pl2792q_74hz.bin"
-TARGET_SHA="40afcfcd7edc070860262f4ecbb5b7f130c8a84b3b4439319ad62cdb31f1547d"
-LOCK_FILE="/run/lock/apply-iiyama-edid.lock"
-
 [ -f "$EDID_FILE" ] || exit 0
-[ -d /sys/kernel/debug/dri ] || exit 0
-mkdir -p /run/lock 2>/dev/null || true
-exec 9>"$LOCK_FILE" 2>/dev/null || exit 0
-flock -n 9 || exit 0
-
 for conn in /sys/class/drm/card*-*; do
-    [ -d "$conn" ] || continue
-    [ -f "$conn/status" ] || continue
-
+    [ "$(cat "$conn/status" 2>/dev/null)" = "connected" ] || continue
+    grep -q "PL2792Q" "$conn/edid" 2>/dev/null || continue
     base=$(basename "$conn")
     card_num=$(echo "$base" | sed -E 's/card([0-9]+)-.*/\1/')
     conn_name=$(echo "$base" | sed -E 's/card[0-9]+-(.*)/\1/')
-    [ -n "$card_num" ] && [ -n "$conn_name" ] || continue
-
-    override_path="/sys/kernel/debug/dri/$card_num/$conn_name/edid_override"
-    hotplug_path="/sys/kernel/debug/dri/$card_num/$conn_name/trigger_hotplug"
-    [ -e "$override_path" ] || continue
-
-    status=$(cat "$conn/status" 2>/dev/null || echo "unknown")
-    if [ "$status" = "connected" ]; then
-        # EDID can lag behind the hotplug event (dock/hub enumeration);
-        # poll briefly instead of acting on an empty file.
-        edid_ok=0
-        for _ in 1 2 3 4 5 6; do
-            if [ -s "$conn/edid" ]; then
-                edid_ok=1
-                break
-            fi
-            sleep 0.5
-        done
-        [ "$edid_ok" = "1" ] || continue
-        if grep -q "PL2792Q" "$conn/edid" 2>/dev/null; then
-            current_sha=$(head -c 256 "$conn/edid" 2>/dev/null | sha256sum | cut -d' ' -f1 || true)
-            if [ "$current_sha" != "$TARGET_SHA" ]; then
-                if cat "$EDID_FILE" > "$override_path" 2>/dev/null; then
-                    # Single reprobe pulse; the SHA guard above makes a
-                    # re-triggered udev event a no-op instead of a loop.
-                    [ -e "$hotplug_path" ] && echo 1 > "$hotplug_path" 2>/dev/null || true
-                    logger -t apply-iiyama-edid "applied 74Hz EDID override on $base" 2>/dev/null || true
-                fi
-            fi
-        fi
-    elif [ "$status" = "disconnected" ]; then
-        # Drop a stale override so a different monitor on the same port is
-        # not masked by it. Cheap and idempotent; serialized by flock.
-        echo -n reset > "$override_path" 2>/dev/null || true
-    fi
+    cat "$EDID_FILE" > "/sys/kernel/debug/dri/$card_num/$conn_name/edid_override" 2>/dev/null || continue
+    echo 1 > "/sys/kernel/debug/dri/$card_num/$conn_name/trigger_hotplug" 2>/dev/null || true
 done
 EOF
     sudo chmod 755 /usr/local/bin/apply-iiyama-edid.sh
@@ -351,8 +249,6 @@ ExecStart=/usr/local/bin/apply-iiyama-edid.sh
 WantedBy=multi-user.target
 EOF
 
-    # 4. Udev rules for hotplug application. NOTE: `|` is literal in udev
-    # match syntax, so ACTION=="add|change" NEVER fires - one line per action.
     sudo tee /etc/udev/rules.d/98-iiyama-edid.rules >/dev/null <<'EOF'
 ACTION=="add", SUBSYSTEM=="drm", KERNEL=="card[0-9]*", RUN+="/usr/local/bin/apply-iiyama-edid.sh"
 ACTION=="change", SUBSYSTEM=="drm", KERNEL=="card[0-9]*", RUN+="/usr/local/bin/apply-iiyama-edid.sh"
@@ -560,9 +456,9 @@ configure_daemons() {
         upower.service
         avahi-daemon.socket # for printer/hostname discovery
         avahi-daemon.service
-        pcscd.socket        # for YubiKey support
-        cups.socket         # for printing (socket activation)
-        cups.service        # for printing
+        pcscd.socket # for YubiKey support
+        cups.socket  # for printing (socket activation)
+        cups.service # for printing
         sshd.service
         paccache.timer
         iiyama-edid-override.service
@@ -586,10 +482,10 @@ configure_daemons() {
     )
 
     local usr_enable=(
-        psd.service             # profile-sync-daemon (puts browser profile to RAM)
-        pipewire.service        # audio
-        pipewire-pulse.service  # audio
-        hyprpolkitagent.service # for password popups
+        psd.service                           # profile-sync-daemon (puts browser profile to RAM)
+        pipewire.service                      # audio
+        pipewire-pulse.service                # audio
+        hyprpolkitagent.service               # for password popups
         hypridle.service                      # idle & screen lock daemon
         wayland-pipewire-idle-inhibit.service # idle inhibitor for pipewire audio
         rclone-sync.timer                     # my own cloud sync daemon
@@ -733,12 +629,6 @@ clean_dot_desktop() {
         libreoffice-base avahi-discover bssh bvnc cmake-gui
         com.prusa3d.PrusaSlicer.GCodeViewer nvidia-settings
     )
-
-    # Un-hide Writer / Calc / Impress in case a previous run hid them:
-    # leftover NoDisplay=true overrides would keep them invisible otherwise.
-    rm -f "$override_dir"/libreoffice-writer.desktop \
-        "$override_dir"/libreoffice-calc.desktop \
-        "$override_dir"/libreoffice-impress.desktop
 
     for app in "${apps[@]}"; do
         for dir in "${search_dirs[@]}"; do
