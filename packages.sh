@@ -12,9 +12,12 @@ export SYSTEM_PKGS=(
     cups-pk-helper
     dmidecode
     dosfstools
+    fprintd
     git
     libcamera
     libfido2
+    libfprint-2-tod1-elan
+    libfprint-tod
     linux-firmware
     linux-headers
     nss-mdns
@@ -25,6 +28,7 @@ export SYSTEM_PKGS=(
     system-config-printer
     udiskie
     ufw
+    usbutils
     wayland-pipewire-idle-inhibit
     yubikey-manager
     zram-generator

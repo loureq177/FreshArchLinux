@@ -48,6 +48,8 @@ main() {
     configure_hyprland_multigpu
     configure_progressive_webapps
     configure_tty_font
+    configure_logind_lid_inhibit
+    configure_fingerprint
 
     sudo mkinitcpio -P
 
@@ -217,16 +219,201 @@ EOF
     sudo tee /usr/local/bin/apply-iiyama-edid.sh >/dev/null <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+# Applies the patched 74Hz EDID ONLY to the physical iiyama PL2792Q.
+# Safety (Oct 2026 panic post-mortem): while an override is staged,
+# $conn/edid reads back the OVERRIDE, so `grep PL2792Q` alone
+# false-positives on any foreign monitor (e.g. HP) plugged into the same
+# port -> invalid modeset -> nvidia-modeset spin -> kmalloc-128 OOM -> panic.
+# Rules: reset on disconnect (never inherit), verify-by-reset when staged
+# but unverified, SHA guard + per-connector state stamps to avoid hotplug
+# self-loops. Failures always degrade to stock EDID (safe), never to a
+# wrong EDID.
 EDID_FILE="/usr/lib/firmware/edid/iiyama_pl2792q_74hz.bin"
+TARGET_SHA="40afcfcd7edc070860262f4ecbb5b7f130c8a84b3b4439319ad62cdb31f1547d"
+EMPTY_SHA="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+LOCK_FILE="/run/lock/apply-iiyama-edid.lock"
+STATE_DIR="/run/iiyama-edid"
+# The dGPU idles in RTD3 D3cold for battery life, so its debugfs nodes only
+# exist while nvidia-drm is resumed. Wait for the node instead of skipping
+# instantly - an instant skip is exactly how the override silently never
+# landed (service exit 0, Hyprland stuck at stock 60Hz, zero journal lines).
+WAIT_NODE_SECS=20
+
 [ -f "$EDID_FILE" ] || exit 0
+[ -d /sys/kernel/debug/dri ] || exit 0
+mkdir -p /run/lock "$STATE_DIR" 2>/dev/null || true
+exec 9>"$LOCK_FILE" 2>/dev/null || exit 0
+flock -n 9 || exit 0
+
+# At boot this service can run before the GPUs probe (no card* in sysfs
+# yet): an empty glob would silently do nothing. Wait for DRM devices.
+for _ in $(seq 1 60); do
+    ls /sys/class/drm/card[0-9] >/dev/null 2>&1 && break
+    sleep 0.5
+done
+
+wait_for_node() { # $1 = path; waits up to WAIT_NODE_SECS for it to appear
+    for _ in $(seq 1 $((WAIT_NODE_SECS * 2))); do
+        [ -e "$1" ] && return 0
+        sleep 0.5
+    done
+    return 1
+}
+
+log() {
+    logger -t apply-iiyama-edid "$1" 2>/dev/null || true
+}
+
+edid_bytes() {
+    head -c 256 "$1" 2>/dev/null | wc -c
+}
+
+edid_sha() {
+    head -c 256 "$1" 2>/dev/null | sha256sum | cut -d' ' -f1 || true
+}
+
+staged_sha() {
+    cat "$1" 2>/dev/null | sha256sum | cut -d' ' -f1 || true
+}
+
+is_iiyama_edid() {
+    grep -q "PL2792Q" "$1" 2>/dev/null
+}
+
+pulse_hotplug() { # $1 = trigger_hotplug path
+    [ -e "$1" ] && echo 1 > "$1" 2>/dev/null || true
+}
+
 for conn in /sys/class/drm/card*-*; do
-    [ "$(cat "$conn/status" 2>/dev/null)" = "connected" ] || continue
-    grep -q "PL2792Q" "$conn/edid" 2>/dev/null || continue
+    [ -d "$conn" ] || continue
+    [ -f "$conn/status" ] || continue
+
     base=$(basename "$conn")
     card_num=$(echo "$base" | sed -E 's/card([0-9]+)-.*/\1/')
     conn_name=$(echo "$base" | sed -E 's/card[0-9]+-(.*)/\1/')
-    cat "$EDID_FILE" > "/sys/kernel/debug/dri/$card_num/$conn_name/edid_override" 2>/dev/null || continue
-    echo 1 > "/sys/kernel/debug/dri/$card_num/$conn_name/trigger_hotplug" 2>/dev/null || true
+    [ -n "$card_num" ] && [ -n "$conn_name" ] || continue
+
+    override_path="/sys/kernel/debug/dri/$card_num/$conn_name/edid_override"
+    hotplug_path="/sys/kernel/debug/dri/$card_num/$conn_name/trigger_hotplug"
+    state_file="$STATE_DIR/$base"
+    if ! wait_for_node "$override_path"; then
+        # Node missing (dGPU asleep): drop the stamp so the next event
+        # with the node present re-verifies instead of trusting it.
+        rm -f "$state_file"
+        log "skip $base: no edid_override node (dGPU asleep?)"
+        continue
+    fi
+
+    status=$(cat "$conn/status" 2>/dev/null || echo "unknown")
+    staged="$(staged_sha "$override_path")"
+    [ -n "$staged" ] || staged="$EMPTY_SHA"
+
+    if [ "$status" = "disconnected" ]; then
+        # Never carry an override to the next monitor on this port.
+        # The kernel probes the fresh plug BEFORE udev re-runs, so a
+        # sticky override would make the new panel inherit iiyama modes.
+        rm -f "$state_file"
+        if [ "$staged" != "$EMPTY_SHA" ]; then
+            if echo -n reset > "$override_path" 2>/dev/null; then
+                log "reset EDID override on $base (disconnected)"
+            else
+                log "FAILED to reset EDID override on $base (disconnected)"
+            fi
+        fi
+        continue
+    fi
+
+    if [ "$status" != "connected" ]; then
+        continue
+    fi
+
+    # EDID can lag behind the hotplug event (dock/hub enumeration);
+    # poll briefly instead of acting on an empty file. NOTE: this MUST
+    # test read bytes, not `[ -s ]`: sysfs reports st_size=0 for
+    # nvidia-drm EDID files even when they read fine, so a stat-size
+    # test is never true and the override silently never applies.
+    edid_ok=0
+    for _ in 1 2 3 4 5 6; do
+        if [ "$(edid_bytes "$conn/edid")" -gt 0 ]; then
+            edid_ok=1
+            break
+        fi
+        sleep 0.5
+    done
+    if [ "$edid_ok" != "1" ]; then
+        log "skip $base: unreadable EDID after hotplug wait"
+        continue
+    fi
+
+    if is_iiyama_edid "$conn/edid"; then
+        if [ "$staged" = "$TARGET_SHA" ]; then
+            # $conn/edid mirrors the staged override, so this match may be
+            # our own stale EDID shadowing a foreign panel (e.g. HP on the
+            # same port after a fast replug). Re-probe once per plug.
+            cur="$(edid_sha "$conn/edid")"
+            if [ -f "$state_file" ] && [ "$(cat "$state_file" 2>/dev/null)" = "iiyama:$cur" ]; then
+                continue # duplicate udev event, already verified
+            fi
+            if echo -n reset > "$override_path" 2>/dev/null; then
+                sleep 0.5
+                pulse_hotplug "$hotplug_path"
+                sleep 1
+                if [ "$(edid_bytes "$conn/edid")" -gt 0 ] && is_iiyama_edid "$conn/edid"; then
+                    if cat "$EDID_FILE" > "$override_path" 2>/dev/null; then
+                        pulse_hotplug "$hotplug_path"
+                        sleep 1
+                        if [ "$(edid_sha "$conn/edid")" = "$TARGET_SHA" ]; then
+                            echo "iiyama:$TARGET_SHA" > "$state_file" 2>/dev/null || true
+                            log "applied 74Hz EDID override on $base (verified)"
+                        else
+                            rm -f "$state_file"
+                            log "FAILED to apply 74Hz EDID override on $base (verify mismatch)"
+                        fi
+                    else
+                        rm -f "$state_file"
+                        log "FAILED to write edid_override on $base"
+                    fi
+                else
+                    rm -f "$state_file"
+                    pulse_hotplug "$hotplug_path"
+                    log "cleared stale 74Hz EDID override on $base (foreign panel was shadowed)"
+                fi
+            else
+                log "FAILED to reset edid_override on $base (verify)"
+            fi
+            continue
+        fi
+        # No override staged and the real panel reads as iiyama: apply once.
+        # The SHA read-back below makes a re-triggered udev event a no-op
+        # instead of a hotplug loop.
+        if cat "$EDID_FILE" > "$override_path" 2>/dev/null; then
+            pulse_hotplug "$hotplug_path"
+            sleep 1
+            if [ "$(edid_sha "$conn/edid")" = "$TARGET_SHA" ]; then
+                echo "iiyama:$TARGET_SHA" > "$state_file" 2>/dev/null || true
+                log "applied 74Hz EDID override on $base"
+            else
+                rm -f "$state_file"
+                log "FAILED to apply 74Hz EDID override on $base"
+            fi
+        else
+            log "FAILED to write edid_override on $base"
+        fi
+        continue
+    fi
+
+    # Foreign panel: real EDID (no OUR override can be staged, otherwise it
+    # would read back as PL2792Q above). Drop any stray override instead of
+    # inheriting it.
+    rm -f "$state_file"
+    if [ "$staged" != "$EMPTY_SHA" ]; then
+        if echo -n reset > "$override_path" 2>/dev/null; then
+            pulse_hotplug "$hotplug_path"
+            log "cleared foreign/stale EDID override on $base"
+        else
+            log "FAILED to clear foreign EDID override on $base"
+        fi
+    fi
 done
 EOF
     sudo chmod 755 /usr/local/bin/apply-iiyama-edid.sh
@@ -249,9 +436,17 @@ ExecStart=/usr/local/bin/apply-iiyama-edid.sh
 WantedBy=multi-user.target
 EOF
 
+    # Only the boot service + drm "add" (physical plug / boot probe).
+    # Deliberately NO "change" and NO nvidia "bind" triggers here:
+    # - "bind" fires on every dGPU RTD3 power transition (suspend/resume),
+    #   i.e. exactly while a USB-C dock re-trains its MST link. The script
+    #   then pokes edid_override / trigger_hotplug mid-training and the
+    #   second stream (e.g. second HP on the dock) ends up with a CRTC but
+    #   a black panel. Plug-and-play must not depend on GPU power cycles.
+    # - "change" fires on every modeset/HDCP event and adds nothing for a
+    #   stationary iiyama (boot service + "add" cover it).
     sudo tee /etc/udev/rules.d/98-iiyama-edid.rules >/dev/null <<'EOF'
 ACTION=="add", SUBSYSTEM=="drm", KERNEL=="card[0-9]*", RUN+="/usr/local/bin/apply-iiyama-edid.sh"
-ACTION=="change", SUBSYSTEM=="drm", KERNEL=="card[0-9]*", RUN+="/usr/local/bin/apply-iiyama-edid.sh"
 EOF
 
     sudo udevadm control --reload-rules
@@ -462,6 +657,9 @@ configure_daemons() {
         sshd.service
         paccache.timer
         iiyama-edid-override.service
+        # NOTE: no fprintd.service here — its unit is static (D-Bus
+        # activated), `enable` is a no-op. configure_fingerprint() only
+        # starts it / waits for the device.
     )
 
     local sys_mask=(
@@ -485,7 +683,6 @@ configure_daemons() {
         psd.service                           # profile-sync-daemon (puts browser profile to RAM)
         pipewire.service                      # audio
         pipewire-pulse.service                # audio
-        hyprpolkitagent.service               # for password popups
         hypridle.service                      # idle & screen lock daemon
         wayland-pipewire-idle-inhibit.service # idle inhibitor for pipewire audio
         rclone-sync.timer                     # my own cloud sync daemon
@@ -504,6 +701,14 @@ configure_daemons() {
 
     systemctl --user enable "${usr_enable[@]}" 2>/dev/null || true
     systemctl --user mask "${usr_mask[@]}" 2>/dev/null || true
+
+    # Quickshell owns the polkit agent slot (PolkitDialog.qml): a second agent
+    # steals registration ("already exists") and its dialog shadows the
+    # Quickshell one. Never enable hyprpolkitagent; undo older runs.
+    systemctl --user disable --now hyprpolkitagent.service org.hyprland.hyprpolkitagent.service 2>/dev/null || true
+
+    # Add user to hardware device groups
+    sudo usermod -aG plugdev "$USER" 2>/dev/null || true
 
     _log_ok "Daemons configured."
 }
@@ -610,6 +815,131 @@ configure_tty_font() {
     sudo systemctl restart systemd-vconsole-setup
 }
 
+# Configures systemd-logind to honor handle-lid-switch inhibitors (stay awake on lid close).
+configure_logind_lid_inhibit() {
+    _log_info "Configuring logind lid switch inhibitor..."
+    sudo mkdir -p /etc/systemd/logind.conf.d
+    sudo tee /etc/systemd/logind.conf.d/lid-inhibit.conf >/dev/null <<'EOF'
+[Login]
+LidSwitchIgnoreInhibited=no
+EOF
+    sudo systemctl kill -s HUP systemd-logind 2>/dev/null || true
+    _log_ok "Logind lid switch inhibitor enabled."
+}
+
+# Installs fprintd, enables the service, wires PAM
+# (sudo/su/polkit-1/hyprlock) with password fallback, and enrolls a finger.
+# Elan 04f3:0c4b needs the proprietary TOD stack (touch): with upstream
+# libfprint (swipe) enroll completes but verify never matches. Proven set
+# (used here since Jun 2026): fprintd + libfprint-tod + libfprint-2-tod1-elan.
+# login/ly are intentionally left on password: greeter fingerprint is
+# unreliable across DMs. To opt login in later:
+#   sudo sed -i '1i auth       sufficient   pam_fprintd.so' /etc/pam.d/login
+configure_fingerprint() {
+    _log_info "Configuring fingerprint reader & PAM..."
+
+    if ! lsusb 2>/dev/null | grep -qi "04f3:0c4b"; then
+        _log_warn "Elan reader (04f3:0c4b) not detected over USB — wiring PAM anyway, skipping enroll prompt."
+    fi
+
+    # libfprint-tod provides/conflicts vanilla libfprint; the Elan TOD blob
+    # pulls openssl-1.1 from AUR. Templates are driver-specific, so swapping
+    # drivers forces a fresh enroll below.
+    if pacman -Q libfprint &>/dev/null && ! pacman -Q libfprint-tod &>/dev/null; then
+        _log_info "Replacing upstream libfprint with Elan TOD stack..."
+        paru -Rdd --noconfirm libfprint
+        FPRINT_REENROLL=1
+    fi
+    if ! pacman -Q fprintd &>/dev/null || ! pacman -Q libfprint-tod &>/dev/null || ! pacman -Q libfprint-2-tod1-elan &>/dev/null; then
+        _log_info "Installing fingerprint stack (fprintd + Elan TOD)..."
+        paru -S --noconfirm --needed fprintd libfprint-tod libfprint-2-tod1-elan
+        sudo systemctl restart fprintd.service 2>/dev/null || true
+    fi
+
+    # fprintd's unit is static (D-Bus activated): `enable` is a no-op.
+    # Just make sure the daemon is up before probing the device.
+    sudo systemctl start fprintd.service 2>/dev/null || true
+    local i
+    for i in $(seq 1 20); do
+        if fprintd-list "$USER" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 0.5
+    done
+
+    if command -v fprintd-list &>/dev/null && fprintd-list "$USER" 2>/dev/null | grep -q "Using device"; then
+        _log_ok "Reader claimed by libfprint."
+    else
+        _log_warn "No fingerprint device claimed — enroll will likely fail."
+    fi
+
+    # Idempotent PAM wiring: `sufficient` means finger success skips the
+    # password, finger failure falls through to password — never a lockout.
+    # Self-healing: drop any previous pam_fprintd.so line first, so a
+    # re-run also repairs the position (after the header, and after
+    # pam_rootok in su so root keeps passwordless `su`).
+    _pam_add_fprintd() {
+        local file="$1"
+        local after="$2"
+        [ -f "$file" ] || return 0
+        sudo sed -i '/pam_fprintd\.so/d' "$file"
+        local entry='auth       sufficient   pam_fprintd.so'
+        if [ -n "$after" ] && grep -qE "$after" "$file"; then
+            sudo sed -i -E "/$after/a $entry" "$file"
+        else
+            sudo sed -i "1i $entry" "$file"
+        fi
+    }
+    _pam_add_fprintd /etc/pam.d/sudo '^#%PAM-1\.0'
+    _pam_add_fprintd /etc/pam.d/su 'pam_rootok\.so'
+    _pam_add_fprintd /etc/pam.d/hyprlock '^#%PAM-1\.0'
+    # polkit goes through the Quickshell agent (PolkitDialog.qml) —
+    # fingerprint first, password fallback. hyprpolkitagent must stay
+    # disabled: two agents fight over one registration slot ("already
+    # exists") and its dialog shadows the Quickshell one.
+    if [ ! -f /etc/pam.d/polkit-1 ]; then
+        sudo tee /etc/pam.d/polkit-1 >/dev/null <<'EOF'
+#%PAM-1.0
+auth       sufficient   pam_fprintd.so
+auth       include      system-auth
+account    include      system-auth
+password   include      system-auth
+session    include      system-auth
+EOF
+    else
+        _pam_add_fprintd /etc/pam.d/polkit-1 '^#%PAM-1\.0'
+    fi
+
+    # Idempotent enrollment: never wipe a working print on a re-run.
+    # fprintd-list prints one " - #N: finger-name" line per enrolled finger.
+    local enrolled=0
+    if command -v fprintd-list &>/dev/null; then
+        enrolled=$(fprintd-list "$USER" 2>/dev/null | grep -cE '^\s*-\s*#[0-9]+:' || true)
+    fi
+    if [ "$enrolled" -gt 0 ]; then
+        if [ "${FPRINT_REENROLL:-0}" != "1" ]; then
+            _log_ok "Fingerprint service & PAM configured ($enrolled print(s) already enrolled, skipping enroll; FPRINT_REENROLL=1 to redo)."
+            return 0
+        fi
+        _log_info "Re-enrolling: removing $enrolled old print(s)..."
+        if ! fprintd-delete "$USER"; then
+            _log_warn "Could not delete old prints — aborting re-enroll, keeping PAM as-is."
+            return 0
+        fi
+    fi
+
+    _log_info "Enroll your finger (press firmly, don't swipe; several times)..."
+    if ! fprintd-enroll; then
+        _log_warn "Enroll failed/cancelled — password auth unaffected."
+        return 0
+    fi
+    if fprintd-verify; then
+        _log_ok "Fingerprint service & PAM configured (sudo/su/polkit-1/hyprlock), enroll verified."
+    else
+        _log_warn "Enroll finished but verify said no-match (often just a bad scan: dry skin, angle, partial press). Password auth unaffected — verify manually with 'fprintd-verify' or rerun with FPRINT_REENROLL=1."
+    fi
+}
+
 # Hides unnecessary desktop entries via user-scope XDG override.
 clean_dot_desktop() {
     local override_dir="$HOME/.local/share/applications"
@@ -628,6 +958,7 @@ clean_dot_desktop() {
         libreoffice-draw libreoffice-math
         libreoffice-base avahi-discover bssh bvnc cmake-gui
         com.prusa3d.PrusaSlicer.GCodeViewer nvidia-settings
+        assistant designer linguist qdbusviewer
     )
 
     for app in "${apps[@]}"; do
