@@ -1,6 +1,5 @@
-export PKG_GROUPS=(SYSTEM GPU MISC)
-
-export SYSTEM_PKGS=(
+# shellcheck shell=bash disable=SC2034
+SYSTEM_PKGS=(
     amd-ucode
     avahi
     bluez
@@ -14,6 +13,7 @@ export SYSTEM_PKGS=(
     dosfstools
     fprintd
     git
+    iwd
     libcamera
     libfido2
     libfprint-2-tod1-elan
@@ -34,7 +34,7 @@ export SYSTEM_PKGS=(
     zram-generator
 )
 
-export GPU_PKGS=(
+GPU_PKGS=(
     cuda
     cudnn
     lib32-nvidia-utils
@@ -50,7 +50,7 @@ export GPU_PKGS=(
     vulkan-tools
 )
 
-export MISC_PKGS=(
+MISC_PKGS=(
     acpid
     asciiquarium
     botsay

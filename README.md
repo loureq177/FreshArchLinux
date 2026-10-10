@@ -9,16 +9,16 @@ It automates setting up Hyprland, audio, development tools, and my dotfiles.
 
 ## Features
 
-- **Installations** Installs everything I need from the official arch repository
-  and flathub (system tools, dev environment, daily apps).
+- **Installations:** `paru`, the packages from `packages.sh`, and my dotfiles
+  (which bring their own package lists and flatpaks).
 - **Fixes:** Kernel parameters for Lenovo Legion touchpads, Lofree Fn keys, and
   NVIDIA/AMD hybrid brightness.
-- **Optimizations** Optimizes `mkinitcpio`, sets up NVIDIA RTD3 for power
-  saving, and handles NVIDIA CDI generation.
-- **Configurations** Daemons, UFW firewall, UKI presets, Zsh as the default
-  shell.
-- **Dotfiles:** Automatically clones and installs my setup from
-  [`loureq177/.files`](https://github.com/loureq177/.files).
+- **Optimizations:** Kernel boot parameters, a slim `mkinitcpio` and NVIDIA
+  RTD3 for power saving.
+- **Configurations:** Daemons, UFW firewall, UKI presets, Zsh as the default
+  shell, fingerprint auth, web app launchers.
+- **Dotfiles:** Clones [`loureq177/.files`](https://github.com/loureq177/.files)
+  if missing and runs its installer.
 
 ## Usage
 
