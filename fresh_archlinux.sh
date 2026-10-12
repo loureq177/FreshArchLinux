@@ -43,6 +43,7 @@ main() {
     configure_uki_preset
     configure_wifi_backend
     configure_daemons
+    configure_ly_startup
     configure_firewall
     configure_reflector
     configure_hyprland_multigpu
@@ -89,7 +90,7 @@ welcome_message() {
     echo " 2. Install:   paru, packages, dotfiles"
     echo " 3. Fix:       brightness, lofree fn keys, touchpad"
     echo " 4. Optimize:  boot params, nvidia rtd3, mkinitcpio, bootloader timeout"
-    echo " 5. Configure: shell, UKI, wifi, daemons, firewall, reflector, multi-GPU,"
+    echo " 5. Configure: shell, UKI, wifi, daemons, ly startup, firewall, reflector, multi-GPU,"
     echo "               web apps, tty font, lid switch, fingerprint"
     echo " 6. Clean up"
     echo -e "${BLUE}===================${NC}\n"
@@ -295,7 +296,8 @@ EOF
     _log_ok "NVIDIA RTD3 configured."
 }
 
-# Slims the initramfs: minimal systemd hooks, fast zstd, no module decompression.
+# Slims the initramfs: minimal systemd hooks, max zstd, no module decompression.
+# zstd unpacks equally fast at any level, so -19 only shrinks the UKI the firmware has to read and measure.
 optimize_mkinitcpio() {
     _log_info "Writing mkinitcpio drop-in (hooks, compression)..."
     sudo mkdir -p /etc/mkinitcpio.conf.d
@@ -303,7 +305,7 @@ optimize_mkinitcpio() {
 MODULES=()
 HOOKS=(systemd autodetect microcode modconf sd-vconsole block filesystems)
 COMPRESSION="zstd"
-COMPRESSION_OPTIONS=(-1 -T0)
+COMPRESSION_OPTIONS=(-19 -T0)
 MODULES_DECOMPRESS="no"
 EOF
     _log_ok "mkinitcpio configured."
@@ -439,6 +441,39 @@ configure_daemons() {
     _log_ok "Daemons configured."
 }
 
+# Starts ly as soon as the GPUs are up instead of after every other boot job.
+configure_ly_startup() {
+    _log_info "Configuring ly startup..."
+
+    # Autologin launches Hyprland right away, so both DRM symlinks must exist first.
+    sudo tee /usr/local/bin/wait-for-gpus >/dev/null <<'EOF'
+#!/bin/sh
+links=$(grep -o 'dri/[a-z-]*' /etc/udev/rules.d/99-hyprland-gpus.rules 2>/dev/null | sort -u)
+i=0
+while [ "$i" -lt 200 ]; do
+    ready=1
+    for link in $links; do
+        [ -e "/dev/$link" ] || ready=0
+    done
+    [ "$ready" = 1 ] && exit 0
+    sleep 0.05
+    i=$((i + 1))
+done
+exit 0
+EOF
+    sudo chmod 755 /usr/local/bin/wait-for-gpus
+
+    # Type=idle (upstream) holds ly until the slowest unit (tailscaled, libvirtd) is up.
+    sudo mkdir -p /etc/systemd/system/ly@tty1.service.d
+    sudo tee /etc/systemd/system/ly@tty1.service.d/fast-start.conf >/dev/null <<'EOF'
+[Service]
+Type=simple
+ExecStartPre=-/usr/local/bin/wait-for-gpus
+EOF
+    sudo systemctl daemon-reload
+    _log_ok "ly starts once the GPUs are ready."
+}
+
 # Enables UFW firewall with default deny incoming and allow outgoing.
 configure_firewall() {
     _log_info "Configuring firewall"
@@ -554,21 +589,26 @@ EOF
 configure_fingerprint() {
     _log_info "Configuring fingerprint reader & PAM..."
 
+    # The reader is unreachable with the lid closed: skip pam_fprintd then,
+    # otherwise every prompt hangs ~30s on it before accepting the password.
+    printf '#!/bin/sh\ngrep -q closed /proc/acpi/button/lid/*/state 2>/dev/null\n' | sudo tee /usr/local/bin/lid-closed >/dev/null
+    sudo chmod 755 /usr/local/bin/lid-closed
+
     _pam_add_fprintd() {
         local file="$1" after="$2"
+        local guard='auth       [success=1 default=ignore]   pam_exec.so quiet /usr/local/bin/lid-closed'
         local entry='auth       sufficient   pam_fprintd.so'
         [ -f "$file" ] || return 0
-        sudo sed -i '/pam_fprintd\.so/d' "$file"
+        sudo sed -i -e '/pam_fprintd\.so/d' -e '/lid-closed/d' "$file"
         if grep -qE "$after" "$file"; then
-            sudo sed -i -E "/$after/a $entry" "$file"
+            sudo sed -i -E "/$after/a $guard\\n$entry" "$file"
         else
-            sudo sed -i "1i $entry" "$file"
+            sudo sed -i "1i $guard\\n$entry" "$file"
         fi
     }
     [ -f /etc/pam.d/polkit-1 ] || sudo cp /usr/lib/pam.d/polkit-1 /etc/pam.d/polkit-1
     _pam_add_fprintd /etc/pam.d/sudo '^#%PAM-1\.0'
     _pam_add_fprintd /etc/pam.d/su 'pam_rootok\.so'
-    _pam_add_fprintd /etc/pam.d/hyprlock '^#%PAM-1\.0'
     _pam_add_fprintd /etc/pam.d/polkit-1 '^#%PAM-1\.0'
 
     # fprintd is D-Bus activated; give it a moment to claim the reader.
@@ -603,7 +643,7 @@ configure_fingerprint() {
         return 0
     fi
     if fprintd-verify; then
-        _log_ok "Fingerprint enrolled and verified (sudo/su/polkit-1/hyprlock)."
+        _log_ok "Fingerprint enrolled and verified (sudo/su/polkit-1)."
     else
         _log_warn "Enrolled, but verify did not match (often just a bad scan). Check with 'fprintd-verify' or rerun with FPRINT_REENROLL=1."
     fi
