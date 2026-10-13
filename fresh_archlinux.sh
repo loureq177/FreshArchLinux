@@ -409,7 +409,6 @@ configure_daemons() {
     )
 
     local usr_enable=(
-        psd.service                           # profile-sync-daemon (puts browser profile to RAM)
         pipewire.service                      # audio
         pipewire-pulse.service                # audio
         hypridle.service                      # idle & screen lock daemon
