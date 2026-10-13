@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+LOCKFILE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/rclone-sync.lock"
+exec 200>"$LOCKFILE"
+if ! flock -n 200; then
+    echo "Another rclone sync is already running. Exiting."
+    exit 0
+fi
+
+CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/rclone/backup.conf"
+[[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
+
+source_root="${RCLONE_BACKUP_SOURCE:-$HOME}"
+remote_root="${RCLONE_BACKUP_REMOTE:-google-drive-backup:mlorenc-backup}"
+
+# `rclone sync` makes the remote match the source, deletions included. A home
+# that is not mounted (it lives on its own drive) looks like one where
+# everything was deleted: refuse to mirror that over the backup.
+if [[ -z "$(find "$source_root" -mindepth 1 -maxdepth 1 ! -name '.*' -print -quit 2>/dev/null)" ]]; then
+    echo "Nothing to back up in $source_root: not syncing." >&2
+    notify-send --app-name "Rclone" -t 5000 "Rclone" -i "dialog-error" "Backup skipped: $source_root is empty or not mounted." || true
+    exit 1
+fi
+
+excludes=(
+    "--exclude=.*/**"
+    "--exclude=.*"
+    "--exclude=node_modules/**"
+    "--exclude=.venv/**"
+    "--exclude=venv/**"
+    "--exclude=__pycache__/**"
+    "--exclude=dist/**"
+    "--exclude=build/**"
+    "--exclude=target/**"
+    "--exclude=.next/**"
+    "--exclude=.idea/**"
+    "--exclude=.vscode/**"
+)
+
+progress=()
+[[ -t 1 ]] && progress=(--progress)
+
+echo "Syncing: $source_root -> $remote_root"
+rc=0
+rclone sync \
+    "$source_root" \
+    "$remote_root" \
+    "${excludes[@]}" \
+    "${progress[@]}" \
+    --drive-chunk-size 128M \
+    --transfers 8 \
+    --checkers 8 \
+    --buffer-size 32M \
+    --fast-list \
+    --track-renames \
+    --drive-use-trash=true \
+    --verbose || rc=$?
+
+if [ "$rc" -ne 0 ]; then
+    notify-send --app-name "Rclone" -t 5000 "Rclone" -i "dialog-error" "Rclone Sync failed. Check the logs for details"
+    exit "$rc"
+fi

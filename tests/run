@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Runs the tests of the personal scripts in home/. Like the dotfiles' suite,
+# they run against a temporary $HOME with every system command stubbed.
+set -uo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")" || exit 2
+command -v bats >/dev/null || { echo "tests/run: bats is not installed (pacman -S bats)" >&2; exit 2; }
+bats "$@" ./*.bats

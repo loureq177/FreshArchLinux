@@ -1,0 +1,2 @@
+RCLONE_BACKUP_SOURCE="$HOME"
+RCLONE_BACKUP_REMOTE="google-drive-backup:mlorenc-backup"
