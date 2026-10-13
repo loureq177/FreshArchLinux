@@ -11,8 +11,6 @@ SYSTEM_PKGS=(
     cups-pk-helper
     dmidecode
     dosfstools
-    fprintd
-    git
     iwd
     libcamera
     libfido2
@@ -23,15 +21,15 @@ SYSTEM_PKGS=(
     nss-mdns
     pam-u2f
     pciutils
+    reflector
     sof-firmware
-    stow
     system-config-printer
+    tailscale
+    terminus-font
     udiskie
     ufw
     usbutils
-    wayland-pipewire-idle-inhibit
     yubikey-manager
-    zram-generator
 )
 
 GPU_PKGS=(
@@ -50,9 +48,45 @@ GPU_PKGS=(
     vulkan-tools
 )
 
+# Applications and tools only I need; the dotfiles install what their configs use.
+APP_PKGS=(
+    arch-audit
+    arduino-cli
+    atac
+    audacity
+    aws-cli-v2
+    bazaar
+    discord
+    distrobox
+    docker
+    docker-compose
+    freecad
+    gimp
+    lib32-gamemode
+    libreoffice-fresh
+    libreoffice-fresh-pl
+    llama-cpp
+    localsend
+    lolcat
+    lynis
+    mkinitcpio-firmware
+    php
+    podman
+    prusa-slicer
+    rclone
+    steam
+    termshark
+    trace-cmd
+)
+
+FLATPAK_PKGS=(
+    net.pistegamez.PekkaKana2
+)
+
 MISC_PKGS=(
     acpid
     asciiquarium
+    cmatrix-git
     botsay
     cowsay
     dnsmasq

@@ -23,9 +23,10 @@ main() {
     mount_external_home
 
     # -- Installations ------------
-    install_and_setup_paru
-    install_packages
+    enable_multilib
     install_dotfiles
+    install_packages
+    install_personal_home
 
     # -- Fixes --------------------
     fix_display_brightness
@@ -39,17 +40,15 @@ main() {
     optimize_bootloader_timeout
 
     # -- Configurations -----------
-    configure_default_shell
     configure_uki_preset
     configure_wifi_backend
     configure_daemons
-    configure_ly_startup
+    configure_gpu_wait
     configure_firewall
     configure_reflector
     configure_hyprland_multigpu
     configure_progressive_webapps
     configure_tty_font
-    configure_logind_lid_inhibit
     configure_fingerprint
 
     sudo mkinitcpio -P
@@ -87,11 +86,11 @@ welcome_message() {
 
     echo -e "${BLUE}=== ACTION PLAN ===${NC}"
     echo " 1. Mount external home"
-    echo " 2. Install:   paru, packages, dotfiles"
+    echo " 2. Install:   dotfiles (they bootstrap paru), packages, personal scripts and timers"
     echo " 3. Fix:       brightness, lofree fn keys, touchpad"
     echo " 4. Optimize:  boot params, nvidia rtd3, mkinitcpio, bootloader timeout"
-    echo " 5. Configure: shell, UKI, wifi, daemons, ly startup, firewall, reflector, multi-GPU,"
-    echo "               web apps, tty font, lid switch, fingerprint"
+    echo " 5. Configure: UKI, wifi, daemons, GPU wait, firewall, reflector, multi-GPU,"
+    echo "               web apps, tty font, fingerprint"
     echo " 6. Clean up"
     echo -e "${BLUE}===================${NC}\n"
 
@@ -139,36 +138,45 @@ mount_external_home() {
     _log_ok "Home drive ready."
 }
 
-install_and_setup_paru() {
-    if ! command -v paru &>/dev/null; then
-        sudo pacman -S --needed --noconfirm git base-devel rust
-        rm -rf /tmp/paru
-        (
-            cd /tmp
-            git clone https://aur.archlinux.org/paru.git
-            cd paru
-            makepkg -si --noconfirm
-        )
-        rm -rf /tmp/paru
-        _log_ok "paru installed."
-    else
-        _log_info "paru already installed - skipping."
+# lib32-* and steam live in multilib, which a fresh pacman.conf ships commented out.
+enable_multilib() {
+    if pacman-conf --repo-list | grep -qx multilib; then
+        _log_info "multilib already enabled - skipping."
+        return 0
     fi
-    paru -Syu --devel --noconfirm
+    _log_info "Enabling the multilib repository..."
+    sudo sed -i '/^#\[multilib\]$/,/^#Include/ s/^#//' /etc/pacman.conf
+    sudo pacman -Sy
+    _log_ok "multilib enabled."
+}
+
+# Clones dotfiles (unless already present) and runs their installer: paru, packages, stow,
+# /etc files, login shell. Everything after this step can rely on paru and stow.
+install_dotfiles() {
+    _log_info "Installing dotfiles..."
+    command -v git &>/dev/null || sudo pacman -S --needed --noconfirm git
+    [ -d "$HOME/.files" ] || git clone https://github.com/loureq177/.files.git "$HOME/.files"
+    bash "$HOME/.files/install.sh"
+    _log_ok "Dotfiles installed."
 }
 
 install_packages() {
     _log_info "Installing all packages..."
-    paru -S --noconfirm --needed "${SYSTEM_PKGS[@]}" "${GPU_PKGS[@]}" "${MISC_PKGS[@]}"
+    paru -S --noconfirm --needed "${SYSTEM_PKGS[@]}" "${GPU_PKGS[@]}" "${APP_PKGS[@]}" "${MISC_PKGS[@]}"
+    if command -v flatpak &>/dev/null; then
+        flatpak install --user -y --or-update flathub "${FLATPAK_PKGS[@]}"
+    fi
     _log_ok "All packages installed."
 }
 
-# Clones dotfiles (unless already present) and runs their installer: packages, stow, /etc files.
-install_dotfiles() {
-    _log_info "Installing dotfiles..."
-    [ -d "$HOME/.files" ] || git clone https://github.com/loureq177/.files.git "$HOME/.files"
-    bash "$HOME/.files/install.sh"
-    _log_ok "Dotfiles installed."
+# Links home/ into ~ the way the dotfiles link theirs: my own scripts and timers
+# (bedtime, rclone-sync) that have no place in the public dotfiles.
+install_personal_home() {
+    _log_info "Linking personal scripts and units..."
+    mkdir -p "$HOME/.local/bin" "$HOME/.config/systemd/user" "$HOME/.config/rclone"
+    stow --dir "$SCRIPT_DIR" --target "$HOME" --restow home
+    systemctl --user daemon-reload 2>/dev/null || true
+    _log_ok "Personal home linked."
 }
 
 # -- Fixes -------------------------------------------------------------------
@@ -328,16 +336,6 @@ optimize_bootloader_timeout() {
 
 # -- Configuration -----------------------------------------------------------
 
-# Changes the user's default login shell to zsh.
-configure_default_shell() {
-    local zsh_path="/usr/bin/zsh"
-    if [ "$(getent passwd "$USER" | cut -d: -f7)" != "$zsh_path" ]; then
-        _log_info "Changing default shell to zsh for $USER..."
-        sudo chsh -s "$zsh_path" "$USER"
-        _log_ok "Default shell changed to zsh."
-    fi
-}
-
 # Writes mkinitcpio preset for Unified Kernel Image generation.
 configure_uki_preset() {
     _log_info "Configuring UKI presets..."
@@ -373,7 +371,6 @@ configure_daemons() {
     )
 
     local sys_enable=(
-        ly@tty1.service
         podman.socket
         ufw.service
         NetworkManager.service
@@ -392,7 +389,6 @@ configure_daemons() {
     )
 
     local sys_mask=(
-        getty@tty1.service                 # tty1 is managed by ly dm
         systemd-tpm2-setup-early.service   # encryption support
         systemd-tpm2-setup.service         # encryption support
         watchdog.service                   # for battery saving
@@ -411,9 +407,8 @@ configure_daemons() {
     local usr_enable=(
         pipewire.service                      # audio
         pipewire-pulse.service                # audio
-        hypridle.service                      # idle & screen lock daemon
-        wayland-pipewire-idle-inhibit.service # idle inhibitor for pipewire audio
-        rclone-sync.timer                     # my own cloud sync daemon
+        rclone-sync.timer                     # my own cloud sync daemon (home/)
+        bedtime.timer                         # wifi curfew (home/)
     )
 
     local usr_mask=(
@@ -440,11 +435,11 @@ configure_daemons() {
     _log_ok "Daemons configured."
 }
 
-# Starts ly as soon as the GPUs are up instead of after every other boot job.
-configure_ly_startup() {
-    _log_info "Configuring ly startup..."
+# Holds the tty1 autologin (set up by the dotfiles) until both DRM symlinks exist:
+# Hyprland starts right after login and would otherwise miss a GPU.
+configure_gpu_wait() {
+    _log_info "Configuring GPU wait before autologin..."
 
-    # Autologin launches Hyprland right away, so both DRM symlinks must exist first.
     sudo tee /usr/local/bin/wait-for-gpus >/dev/null <<'EOF'
 #!/bin/sh
 links=$(grep -o 'dri/[a-z-]*' /etc/udev/rules.d/99-hyprland-gpus.rules 2>/dev/null | sort -u)
@@ -462,15 +457,13 @@ exit 0
 EOF
     sudo chmod 755 /usr/local/bin/wait-for-gpus
 
-    # Type=idle (upstream) holds ly until the slowest unit (tailscaled, libvirtd) is up.
-    sudo mkdir -p /etc/systemd/system/ly@tty1.service.d
-    sudo tee /etc/systemd/system/ly@tty1.service.d/fast-start.conf >/dev/null <<'EOF'
+    sudo mkdir -p /etc/systemd/system/getty@tty1.service.d
+    sudo tee /etc/systemd/system/getty@tty1.service.d/gpu-wait.conf >/dev/null <<'EOF'
 [Service]
-Type=simple
 ExecStartPre=-/usr/local/bin/wait-for-gpus
 EOF
     sudo systemctl daemon-reload
-    _log_ok "ly starts once the GPUs are ready."
+    _log_ok "Autologin waits for the GPUs."
 }
 
 # Enables UFW firewall with default deny incoming and allow outgoing.
@@ -570,18 +563,6 @@ configure_tty_font() {
         echo "FONT=ter-u20n" | sudo tee -a /etc/vconsole.conf >/dev/null
     fi
     sudo systemctl restart systemd-vconsole-setup
-}
-
-# Configures systemd-logind to honor handle-lid-switch inhibitors (stay awake on lid close).
-configure_logind_lid_inhibit() {
-    _log_info "Configuring logind lid switch inhibitor..."
-    sudo mkdir -p /etc/systemd/logind.conf.d
-    sudo tee /etc/systemd/logind.conf.d/lid-inhibit.conf >/dev/null <<'EOF'
-[Login]
-LidSwitchIgnoreInhibited=no
-EOF
-    sudo systemctl kill -s HUP systemd-logind 2>/dev/null || true
-    _log_ok "Logind lid switch inhibitor enabled."
 }
 
 # Wires pam_fprintd (sufficient, so password stays as fallback) and enrolls a finger.
