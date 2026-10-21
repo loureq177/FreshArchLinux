@@ -16,8 +16,14 @@ source "$SCRIPT_DIR/packages.sh"
 LOGS="/var/tmp/arch-setup.log"
 exec > >(tee >(sed -u 's/\x1b\[[0-9;]*[A-Za-z]//g' >"$LOGS")) 2>&1
 
-# Entry point orchestrating the full Arch Linux setup process.
+# Entry point orchestrating the full Arch Linux setup process. Given step names, runs
+# only those, e.g. after changing one: ./fresh_archlinux.sh optimize_mkinitcpio
 main() {
+    if [ $# -gt 0 ]; then
+        run_steps "$@"
+        return
+    fi
+
     check_user
     welcome_message
     mount_external_home
@@ -47,7 +53,6 @@ main() {
     configure_firewall
     configure_reflector
     configure_hyprland_multigpu
-    configure_progressive_webapps
     configure_tty_font
     configure_fingerprint
 
@@ -56,6 +61,22 @@ main() {
     clean_dot_desktop
     cleanup
     finished_message
+}
+
+# Runs the named steps and rebuilds the UKIs, since most steps end up in them.
+run_steps() {
+    local step
+    for step in "$@"; do
+        declare -F "$step" >/dev/null || {
+            _log_error "No such step: $step"
+            exit 1
+        }
+    done
+    check_user
+    for step in "$@"; do
+        "$step"
+    done
+    sudo mkinitcpio -P
 }
 
 # Ensures the script runs as a regular user and keeps sudo credentials alive.
@@ -88,7 +109,7 @@ welcome_message() {
     echo " 1. Mount external home"
     echo " 2. Install:   dotfiles (they bootstrap paru), packages, personal scripts and timers"
     echo " 3. Fix:       brightness, lofree fn keys, touchpad"
-    echo " 4. Optimize:  boot params, nvidia rtd3, mkinitcpio, bootloader timeout"
+    echo " 4. Optimize:  boot params, nvidia rtd3, mkinitcpio, bootloader timeout + default"
     echo " 5. Configure: UKI, wifi, daemons, GPU wait, firewall, reflector, multi-GPU,"
     echo "               web apps, tty font, fingerprint"
     echo " 6. Clean up"
@@ -234,24 +255,31 @@ _add_kernel_params() {
     fi
 
     _log_info "Adding boot parameters: ${params[*]}"
+    _remove_kernel_params "${params[@]%%=*}"
+    echo "$(<"$cmdline_file") ${params[*]}" | sudo tee "$cmdline_file" >/dev/null
+    _log_ok "Updated parameters in: $cmdline_file"
+}
+
+# Drops boot parameters by name (the part before '=') from /etc/kernel/cmdline.
+_remove_kernel_params() {
+    local cmdline_file="/etc/kernel/cmdline"
+    [ -f "$cmdline_file" ] || return 0
 
     local -a current kept=()
-    local word param
+    local word name
     read -ra current <"$cmdline_file" || true
     for word in "${current[@]}"; do
-        for param in "${params[@]}"; do
-            [ "${word%%=*}" = "${param%%=*}" ] && continue 2
+        for name in "$@"; do
+            [ "${word%%=*}" = "$name" ] && continue 2
         done
         kept+=("$word")
     done
-
-    echo "${kept[*]} ${params[*]}" | sudo tee "$cmdline_file" >/dev/null
-    _log_ok "Updated parameters in: $cmdline_file"
+    echo "${kept[*]}" | sudo tee "$cmdline_file" >/dev/null
 }
 
 # -- Optimizations ----------------------------------------------------------
 
-# Configures power-saving and performance kernel boot parameters, blacklists TPM.
+# Configures power-saving and performance kernel boot parameters.
 optimize_base_boot_params() {
     local params=(
         mem_sleep_default=deep
@@ -267,14 +295,29 @@ optimize_base_boot_params() {
         mitigations=off
         amd_pstate=active
         console=tty1
-        tpm_tis.interrupts=0
-        tpm_tis.force=0
         8250.nr_uarts=0
+        # Arch's default minus bpf. systemd attaches a BPF LSM program at start, which turns
+        # ftrace on, so every module load then holds text_mutex while ftrace checks each of its
+        # functions; for amdgpu that is ~2.8 s, and systemd itself (BPF, seccomp) waits on it.
+        # Only RestrictFileSystems= needs BPF LSM, and no unit here sets it.
+        "lsm=landlock,lockdown,yama,integrity"
+        # systemd stops starting mount units for the rest of a second once it has seen 5 mount
+        # table changes in it, and its own early mounts always do that: /sysroot waited ~0.75 s
+        # in the initrd, /boot and /home ~0.5 s after switch root. The kernel hands this to PID 1
+        # as an environment variable, and PID 1 keeps it across switch root.
+        SYSTEMD_DEFAULT_MOUNT_RATE_LIMIT_BURST=100
     )
     _log_info "Configuring base boot parameters (performance, power)..."
+    # Left over from earlier attempts at silencing the TPM: tpm_tis.* never applied (this
+    # one is a CRB device) and systemd.mask= did not stop the initrd's TPM units.
+    _remove_kernel_params tpm_tis.interrupts tpm_tis.force systemd.mask
     _add_kernel_params "${params[@]}"
 
-    echo -e "blacklist tpm\nblacklist tpm_crb\nblacklist tpm_tis\nblacklist tpm_tis_core" | sudo tee /etc/modprobe.d/tpm-blacklist.conf >/dev/null
+    # The TPM drivers are built into Arch's kernel, so a modprobe blacklist never applied.
+    sudo rm -f /etc/modprobe.d/tpm-blacklist.conf
+    if [ -e /sys/class/tpm/tpm0 ]; then
+        _log_warn "TPM is enabled: nothing here uses it, but firmware and systemd-stub measure every boot. Turn it off in the BIOS (Security)."
+    fi
 }
 
 # Enables NVIDIA RTD3 dynamic power management and DRM modesetting.
@@ -306,12 +349,15 @@ EOF
 
 # Slims the initramfs: minimal systemd hooks, max zstd, no module decompression.
 # zstd unpacks equally fast at any level, so -19 only shrinks the UKI the firmware has to read and measure.
+# vfat is loaded in the initrd: loaded on demand for /boot, it waits behind the GPU drivers'
+# module loads and holds local-fs.target, and with it the whole boot, for 2-4 s.
+# No sd-vconsole: the kernel sets the console font (configure_tty_font).
 optimize_mkinitcpio() {
     _log_info "Writing mkinitcpio drop-in (hooks, compression)..."
     sudo mkdir -p /etc/mkinitcpio.conf.d
     sudo tee /etc/mkinitcpio.conf.d/custom.conf >/dev/null <<'EOF'
-MODULES=()
-HOOKS=(systemd autodetect microcode modconf sd-vconsole block filesystems)
+MODULES=(vfat)
+HOOKS=(systemd autodetect microcode modconf block filesystems)
 COMPRESSION="zstd"
 COMPRESSION_OPTIONS=(-19 -T0)
 MODULES_DECOMPRESS="no"
@@ -319,7 +365,10 @@ EOF
     _log_ok "mkinitcpio configured."
 }
 
-# Sets systemd-boot menu timeout to 0 for instant boot.
+# Sets systemd-boot menu timeout to 0 for instant boot, and pins the default to the UKI:
+# without it systemd-boot boots the first entry by sort order, and an extra entry
+# (e.g. boot-report --diagnose) can take that place.
+# /boot is root-only, so even testing for the file needs sudo.
 optimize_bootloader_timeout() {
     local loader_file="/boot/loader/loader.conf"
     if ! sudo bootctl is-installed 2>/dev/null; then
@@ -327,21 +376,20 @@ optimize_bootloader_timeout() {
         sudo bootctl install
     fi
     sudo mkdir -p "/boot/loader"
-    if [ -f "$loader_file" ]; then
-        sudo sed -i '/^timeout/d' "$loader_file"
-    fi
-    echo "timeout 0" | sudo tee -a "$loader_file" >/dev/null
-    _log_ok "Bootloader timeout set to 0 in $loader_file."
+    sudo touch "$loader_file"
+    sudo sed -i '/^[[:space:]]*\(timeout\|default\)\b/d' "$loader_file"
+    printf 'timeout 0\ndefault arch-linux.efi\n' | sudo tee -a "$loader_file" >/dev/null
+    _log_ok "Bootloader timeout set to 0 and default to arch-linux.efi in $loader_file."
 }
 
 # -- Configuration -----------------------------------------------------------
 
 # Writes mkinitcpio preset for Unified Kernel Image generation.
+# No ALL_config: an explicit config (-c) makes mkinitcpio skip /etc/mkinitcpio.conf.d.
 configure_uki_preset() {
     _log_info "Configuring UKI presets..."
     sudo mkdir -p /boot/EFI/Linux
     sudo tee /etc/mkinitcpio.d/linux.preset >/dev/null <<EOF
-ALL_config="/etc/mkinitcpio.conf"
 ALL_kver="/boot/vmlinuz-linux"
 PRESETS=('default' 'fallback')
 default_uki="/boot/EFI/Linux/arch-linux.efi"
@@ -502,67 +550,17 @@ EOF
     _log_ok "Reflector configured and reflector.timer enabled."
 }
 
-# Generates desktop entries (launched via firefox-webapp from dotfiles) and downloads icons for my web apps.
-configure_progressive_webapps() {
-    local desktop_dir="$HOME/.local/share/applications"
-    local icon_dir="$HOME/.local/share/icons/hicolor/scalable/apps"
-
-    mkdir -p "$desktop_dir" "$icon_dir"
-
-    _log_info "Downloading app icons..."
-
-    local -A icon_urls
-    icon_urls["google-calendar"]="https://upload.wikimedia.org/wikipedia/commons/f/fa/Google_Calendar_icon_%282026%29.svg"
-    icon_urls["google-mail"]="https://upload.wikimedia.org/wikipedia/commons/8/8f/Gmail_icon_%282026%29.svg"
-    icon_urls["google-tasks"]="https://upload.wikimedia.org/wikipedia/commons/3/3f/Google_Tasks_Logo_05.2026.svg"
-    icon_urls["whatsapp-desktop"]="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg"
-    icon_urls["google-gemini"]="https://upload.wikimedia.org/wikipedia/commons/1/1d/Google_Gemini_icon_2025.svg"
-
-    local name
-    for name in "${!icon_urls[@]}"; do
-        curl -fsSL -o "$icon_dir/$name.svg" "${icon_urls[$name]}" || _log_warn "Failed to download $name icon"
-    done
-
-    local apps=(
-        "Calendar|https://calendar.google.com|google-calendar|Network;Office;"
-        "Gmail|https://mail.google.com|google-mail|Network;Email;"
-        "WhatsApp|https://web.whatsapp.com|whatsapp-desktop|Network;InstantMessaging;"
-        "Tasks|https://tasks.google.com|google-tasks|Office;Utility;"
-        "Gemini|https://gemini.google.com|google-gemini|Network;AI;Google;"
-    )
-
-    local class desktop
-    for app in "${apps[@]}"; do
-        IFS='|' read -r name url icon categories <<<"$app"
-        class="$(echo "$name" | tr '[:upper:]' '[:lower:]')"
-        desktop="$desktop_dir/$class.desktop"
-
-        cat >"$desktop" <<DESKTOPEOF
-[Desktop Entry]
-Name=$name
-Exec=$HOME/.local/bin/firefox-webapp $class $url
-Icon=$icon
-Terminal=false
-Type=Application
-StartupWMClass=webapps
-Categories=$categories
-DESKTOPEOF
-    done
-
-    gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
-    update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
-
-    _log_ok "Progressive web apps configured."
-}
-
-# Increases tty font and swaps it to unicode terminus for readability
+# Large Terminus on the ttys, set by the kernel itself (TER16x32 is built in).
+# systemd-vconsole-setup would run setfont when the GPU driver takes the console over,
+# which is the moment the tty1 autologin starts: the login waited ~0.7 s on it and
+# setfont failed anyway. The keymap stays the kernel's default (us).
 configure_tty_font() {
-    if grep -q "^FONT=" /etc/vconsole.conf; then
-        sudo sed -i 's/^FONT=.*/FONT=ter-u20n/' /etc/vconsole.conf
-    else
-        echo "FONT=ter-u20n" | sudo tee -a /etc/vconsole.conf >/dev/null
-    fi
-    sudo systemctl restart systemd-vconsole-setup
+    _log_info "Configuring tty font..."
+    _add_kernel_params "fbcon=font:TER16x32"
+    [ ! -f /etc/vconsole.conf ] || sudo sed -i '/^FONT=/d' /etc/vconsole.conf
+    sudo ln -sf /dev/null /etc/udev/rules.d/90-vconsole.rules
+    sudo systemctl mask systemd-vconsole-setup.service
+    _log_ok "Kernel sets the tty font; systemd-vconsole-setup masked."
 }
 
 # Wires pam_fprintd (sufficient, so password stays as fallback) and enrolls a finger.
@@ -707,4 +705,4 @@ finished_message() {
     printf 'sudo tailscale up\n'
 }
 
-main
+main "$@"
