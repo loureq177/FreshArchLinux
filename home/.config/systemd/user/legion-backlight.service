@@ -1,0 +1,11 @@
+[Unit]
+Description=Brings back the panel the Legion firmware dims
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/legion-backlight
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target

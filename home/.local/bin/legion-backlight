@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# Lenovo Legion firmware dims the panel when the dGPU loses power (D3cold) or
+# the platform profile changes, without touching the brightness value. Writing
+# the value again makes it take effect; the firmware needs a different value in
+# between, and now and then a second try. sysfs sends no change events for
+# either file, so they are polled. --once restores the panel and exits.
+
+nudge() {
+    local cur
+    cur="$(brightnessctl -c backlight get)" || return 0
+    brightnessctl -q -c backlight set "$((cur > 0 ? cur - 1 : 1))"
+    brightnessctl -q -c backlight set "$cur"
+}
+
+restore() {
+    nudge
+    sleep 0.5
+    nudge
+}
+
+if [[ "${1:-}" == --once ]]; then
+    restore
+    exit 0
+fi
+
+vendor="$(grep -lx 0x10de /sys/bus/pci/devices/*/vendor 2>/dev/null | head -1)"
+gpu_file="${vendor%vendor}power/runtime_status"
+profile_file=/sys/firmware/acpi/platform_profile
+
+# The panel dims once more after login.
+sleep 4
+restore
+
+gpu="$(cat "$gpu_file" 2>/dev/null)"
+profile="$(cat "$profile_file" 2>/dev/null)"
+while sleep 2; do
+    gpu_was=$gpu profile_was=$profile
+    gpu="$(cat "$gpu_file" 2>/dev/null)"
+    profile="$(cat "$profile_file" 2>/dev/null)"
+    # It dims when the power is cut, at the end of "suspending", not its start.
+    if [[ "$gpu" == suspended && "$gpu_was" != suspended ]]; then
+        sleep 0.4
+        restore
+    # A new profile dims it a few seconds later.
+    elif [[ "$profile" != "$profile_was" ]]; then
+        sleep 12
+        restore
+    fi
+done
