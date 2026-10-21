@@ -77,6 +77,17 @@ APP_PKGS=(
     steam
     termshark
     trace-cmd
+    texlive-basic
+    texlive-latex
+    texlive-latexrecommended
+    texlive-fontsrecommended
+    texlive-binextra
+    texlive-latexextra
+    texlive-mathscience
+    texlive-langpolish
+    texlive-fontsextra
+    texlive-bibtexextra
+    biber
 )
 
 FLATPAK_PKGS=(
