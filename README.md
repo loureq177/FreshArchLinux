@@ -16,7 +16,7 @@ laptop lives here.
 | --- | --- | --- |
 | Packages | what its configs and scripts use | hardware, drivers, my applications (`packages.sh`) |
 | Home directory | configs, desktop scripts, their units | my own scripts and timers (`home/`) |
-| System | autologin, login shell, keyd, zram | kernel parameters, GPU, daemons, firewall, fingerprint |
+| System | autologin, login shell, zram | kernel parameters, GPU, daemons, firewall, fingerprint, keyd |
 
 ## Features
 
@@ -49,6 +49,13 @@ next to the dotfiles' own links:
   `boot-report --diagnose` makes the next boot, once, log every driver probe
   and systemd job (`initcall_debug`, systemd debug); `boot-report` then lists
   the slowest ones and what systemd did while it waited.
+- `legion-backlight` and its service: the firmware dims the panel when the
+  dGPU powers down or the platform profile changes; this writes the brightness
+  again. `legion-backlight --once` does it by hand.
+- `mesa-egl` and `dgpu-run`: the session's shell keeps to the iGPU's EGL
+  (`quickshell-session` starts it through `mesa-egl`), and `dgpu-run` runs a
+  program on the NVIDIA card despite the iGPU pin of `local.lua`.
+- `sklauncher.desktop`: the Minecraft launcher's AppImage in the app list.
 
 After changing what is in `home/`:
 
@@ -63,7 +70,7 @@ chmod +x fresh_archlinux.sh
 ./fresh_archlinux.sh
 ```
 
-To re-apply some steps on an installed system (the UKIs are rebuilt after):
+To re-apply some steps on an installed system (the UKIs are rebuilt only if those steps changed their inputs):
 
 ```bash
 ./fresh_archlinux.sh optimize_base_boot_params optimize_mkinitcpio configure_tty_font

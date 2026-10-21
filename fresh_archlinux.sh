@@ -48,6 +48,7 @@ main() {
     # -- Configurations -----------
     configure_uki_preset
     configure_wifi_backend
+    configure_keyd
     configure_daemons
     configure_gpu_wait
     configure_firewall
@@ -63,9 +64,9 @@ main() {
     finished_message
 }
 
-# Runs the named steps and rebuilds the UKIs, since most steps end up in them.
+# Runs the named steps and rebuilds the UKIs only if the steps changed what goes into them.
 run_steps() {
-    local step
+    local step before
     for step in "$@"; do
         declare -F "$step" >/dev/null || {
             _log_error "No such step: $step"
@@ -73,10 +74,17 @@ run_steps() {
         }
     done
     check_user
+    before=$(_uki_inputs)
     for step in "$@"; do
         "$step"
     done
-    sudo mkinitcpio -P
+    [ "$(_uki_inputs)" = "$before" ] || sudo mkinitcpio -P
+}
+
+# Everything mkinitcpio builds the UKIs from; boot parameter order does not matter.
+_uki_inputs() {
+    { tr -s ' ' '\n' </etc/kernel/cmdline | sort; cat /etc/mkinitcpio.conf /etc/mkinitcpio.conf.d/* \
+        /etc/mkinitcpio.d/linux.preset /etc/modprobe.d/*; } 2>/dev/null || true
 }
 
 # Ensures the script runs as a regular user and keeps sudo credentials alive.
@@ -136,13 +144,12 @@ mount_external_home() {
     fi
 
     if ! grep -q "$UUID" /etc/fstab; then
-        if ! awk '$2 == "/home" {found=1; exit} END {exit !found}' /etc/fstab; then
-            echo "UUID=$UUID /home ext4 defaults 0 2" | sudo tee -a /etc/fstab >/dev/null
-            _log_ok "Added $UUID to /etc/fstab"
-        else
+        if awk '$2 == "/home" {found=1; exit} END {exit !found}' /etc/fstab; then
             _log_warn "/home is already defined in /etc/fstab by another device. Skipping."
             return 0
         fi
+        echo "UUID=$UUID /home ext4 defaults 0 2" | sudo tee -a /etc/fstab >/dev/null
+        _log_ok "Added $UUID to /etc/fstab"
     fi
 
     if mountpoint -q /home; then
@@ -239,12 +246,11 @@ EOF
 
 # Adds or replaces kernel boot parameters in /etc/kernel/cmdline.
 _add_kernel_params() {
-    local -a params=("$@")
     local cmdline_file="/etc/kernel/cmdline"
 
     if [ ! -f "$cmdline_file" ]; then
         _log_info "Initializing $cmdline_file with root partition..."
-        sudo mkdir -p "$(dirname "$cmdline_file")"
+        sudo mkdir -p /etc/kernel
         local root_part
         root_part=$(findmnt / -o PARTUUID -n 2>/dev/null || true)
         if [ -n "$root_part" ]; then
@@ -254,9 +260,9 @@ _add_kernel_params() {
         fi
     fi
 
-    _log_info "Adding boot parameters: ${params[*]}"
-    _remove_kernel_params "${params[@]%%=*}"
-    echo "$(<"$cmdline_file") ${params[*]}" | sudo tee "$cmdline_file" >/dev/null
+    _log_info "Adding boot parameters: $*"
+    _remove_kernel_params "${@%%=*}"
+    echo "$(<"$cmdline_file") $*" | sudo tee "$cmdline_file" >/dev/null
     _log_ok "Updated parameters in: $cmdline_file"
 }
 
@@ -408,6 +414,21 @@ configure_wifi_backend() {
     _log_ok "NetworkManager wifi backend set to iwd."
 }
 
+# Caps Lock is Esc when tapped and Ctrl when held, on every keyboard.
+configure_keyd() {
+    sudo mkdir -p /etc/keyd
+    sudo tee /etc/keyd/default.conf >/dev/null <<'EOF'
+[ids]
+*
+
+[main]
+capslock = overload(control, esc)
+EOF
+    sudo systemctl enable --now keyd || _log_warn "Failed to enable keyd."
+    sudo keyd reload 2>/dev/null || true
+    _log_ok "keyd configured."
+}
+
 # Enables, disables, and masks systemd services for the target system profile.
 configure_daemons() {
     local sys_disable=(
@@ -453,10 +474,11 @@ configure_daemons() {
     )
 
     local usr_enable=(
-        pipewire.service                      # audio
-        pipewire-pulse.service                # audio
-        rclone-sync.timer                     # my own cloud sync daemon (home/)
-        bedtime.timer                         # wifi curfew (home/)
+        pipewire.service         # audio
+        pipewire-pulse.service   # audio
+        rclone-sync.timer        # my own cloud sync daemon (home/)
+        bedtime.timer            # wifi curfew (home/)
+        legion-backlight.service # undoes the firmware's panel dimming (home/)
     )
 
     local usr_mask=(
@@ -638,7 +660,7 @@ clean_dot_desktop() {
         libreoffice-draw libreoffice-math
         libreoffice-base avahi-discover bssh bvnc cmake-gui
         com.prusa3d.PrusaSlicer.GCodeViewer nvidia-settings
-        assistant designer linguist qdbusviewer
+        assistant designer linguist qdbusviewer xdvi
     )
 
     local app
@@ -674,16 +696,12 @@ configure_hyprland_multigpu() {
         return 0
     fi
 
-    sudo tee /etc/udev/rules.d/99-hyprland-gpus.rules >/dev/null <<EOF
-KERNEL=="card*", KERNELS=="0000:$amd_pci_id", SUBSYSTEM=="drm", SUBSYSTEMS=="pci", SYMLINK+="dri/amd-igpu"
-EOF
-
-    if [ -n "$nvidia_pci_id" ]; then
-        sudo tee -a /etc/udev/rules.d/99-hyprland-gpus.rules >/dev/null <<EOF
-KERNEL=="card*", KERNELS=="0000:$nvidia_pci_id", SUBSYSTEM=="drm", SUBSYSTEMS=="pci", SYMLINK+="dri/nvidia-dgpu"
-EOF
-        _log_ok "Detected NVIDIA at PCI: $nvidia_pci_id → /dev/dri/nvidia-dgpu"
-    fi
+    _gpu_rule() { echo "KERNEL==\"card*\", KERNELS==\"0000:$1\", SUBSYSTEM==\"drm\", SUBSYSTEMS==\"pci\", SYMLINK+=\"dri/$2\""; }
+    {
+        _gpu_rule "$amd_pci_id" amd-igpu
+        [ -z "$nvidia_pci_id" ] || _gpu_rule "$nvidia_pci_id" nvidia-dgpu
+    } | sudo tee /etc/udev/rules.d/99-hyprland-gpus.rules >/dev/null
+    [ -z "$nvidia_pci_id" ] || _log_ok "Detected NVIDIA at PCI: $nvidia_pci_id → /dev/dri/nvidia-dgpu"
 
     sudo udevadm control --reload
     sudo udevadm trigger --subsystem-match=drm
@@ -693,16 +711,17 @@ EOF
 
 # Prints the final success message with post-install instructions.
 finished_message() {
-    printf '\n'
-    printf '%b========================================%b\n' "${GREEN}" "${NC}"
-    printf '%b INSTALLATION COMPLETED SUCCESSFULLY!%b\n' "${GREEN}" "${NC}"
-    printf '%b========================================%b\n' "${GREEN}" "${NC}"
-    printf '\n'
-    printf 'Logs saved to: %s\n' "$LOGS"
-    printf 'System is primed for Hyprland login. Enjoy the speed.\n'
-    printf 'Restart is necessary for the installation to finish.\n\n'
-    printf 'Remember to setup tailscale manually after reboot with:\n'
-    printf 'sudo tailscale up\n'
+    echo -e "\n${GREEN}========================================"
+    echo " INSTALLATION COMPLETED SUCCESSFULLY!"
+    echo -e "========================================${NC}\n"
+    cat <<EOF
+Logs saved to: $LOGS
+System is primed for Hyprland login. Enjoy the speed.
+Restart is necessary for the installation to finish.
+
+Remember to setup tailscale manually after reboot with:
+sudo tailscale up
+EOF
 }
 
 main "$@"

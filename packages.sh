@@ -12,6 +12,7 @@ SYSTEM_PKGS=(
     dmidecode
     dosfstools
     iwd
+    keyd
     libcamera
     libfido2
     libfprint-2-tod1-elan
