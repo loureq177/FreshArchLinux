@@ -7,8 +7,17 @@ load helpers
     bash -n "$REPO/fresh_archlinux.sh"
     bash -n "$REPO/packages.sh"
     need shellcheck
+    local shell_scripts
+    mapfile -t shell_scripts < <(grep -l '^#!.*bash' "$REPO"/home/.local/bin/*)
     # Sourced files are only known at run time (packages.sh, backup.conf).
-    shellcheck -e SC1090,SC1091 "$REPO/fresh_archlinux.sh" "$REPO"/home/.local/bin/*
+    shellcheck -e SC1090,SC1091 "$REPO/fresh_archlinux.sh" "${shell_scripts[@]}"
+}
+
+@test "python scripts compile" {
+    local f
+    for f in $(grep -l '^#!.*python3' "$REPO"/home/.local/bin/*); do
+        python3 -c 'import ast, sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])' "$f"
+    done
 }
 
 @test "package arrays have no duplicates" {
