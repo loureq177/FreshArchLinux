@@ -102,6 +102,7 @@ MISC_PKGS=(
     botsay
     cowsay
     dnsmasq
+    epiphany
     espeak-ng
     jre-openjdk
     libvirt
