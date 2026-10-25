@@ -52,6 +52,7 @@ main() {
     configure_keyd
     configure_daemons
     configure_gpu_wait
+    configure_fast_shutdown
     configure_firewall
     configure_reflector
     configure_hyprland_multigpu
@@ -543,6 +544,25 @@ ExecStartPre=-/usr/local/bin/wait-for-gpus
 EOF
     sudo systemctl daemon-reload
     _log_ok "Autologin waits for the GPUs."
+}
+
+# Two fixed 1 s waits held every shutdown, and they run side by side, so both have to go:
+# `tailscaled --cleanup` tries to upload its logs after the network is gone, then waits 1 s
+# for the flush; iwd waits 1 s on SIGTERM to power the radios down, which a reboot does anyway.
+configure_fast_shutdown() {
+    _log_info "Configuring fast shutdown..."
+    sudo mkdir -p /etc/systemd/system/tailscaled.service.d /etc/systemd/system/iwd.service.d
+    sudo tee /etc/systemd/system/tailscaled.service.d/no-logs.conf >/dev/null <<'EOF'
+[Service]
+Environment=TS_NO_LOGS_NO_SUPPORT=true
+EOF
+    sudo tee /etc/systemd/system/iwd.service.d/fast-stop.conf >/dev/null <<'EOF'
+[Service]
+KillSignal=SIGKILL
+SuccessExitStatus=SIGKILL
+EOF
+    sudo systemctl daemon-reload
+    _log_ok "tailscaled and iwd stop without waiting."
 }
 
 # Enables UFW firewall with default deny incoming and allow outgoing.
