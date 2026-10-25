@@ -168,7 +168,7 @@ mount_external_home() {
     _log_ok "Home drive ready."
 }
 
-# lib32-* and steam live in multilib, which a fresh pacman.conf ships commented out.
+# The lib32-* packages live in multilib, which a fresh pacman.conf ships commented out.
 enable_multilib() {
     if pacman-conf --repo-list | grep -qx multilib; then
         _log_info "multilib already enabled - skipping."

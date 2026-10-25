@@ -34,13 +34,10 @@ SYSTEM_PKGS=(
 )
 
 GPU_PKGS=(
-    cuda
-    cudnn
     lib32-nvidia-utils
     lib32-vulkan-radeon
     libva-nvidia-driver
     mesa-utils
-    nvidia-container-toolkit
     nvidia-open-dkms
     nvidia-prime
     nvidia-settings
@@ -59,11 +56,8 @@ APP_PKGS=(
     bazaar
     discord
     distrobox
-    docker
-    docker-compose
     freecad
     gimp
-    lib32-gamemode
     libreoffice-fresh
     libreoffice-fresh-pl
     llama-cpp
@@ -75,7 +69,6 @@ APP_PKGS=(
     podman
     prusa-slicer
     rclone
-    steam
     termshark
     trace-cmd
     texlive-basic
@@ -101,11 +94,9 @@ MISC_PKGS=(
     cmatrix-git
     botsay
     cowsay
-    dnsmasq
     epiphany
     espeak-ng
     jre-openjdk
-    libvirt
     speech-dispatcher
     valkey
     x264
