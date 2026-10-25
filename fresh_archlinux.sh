@@ -10,6 +10,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DESKTOP_DIR="$HOME/Projects/desktop"
 
 source "$SCRIPT_DIR/packages.sh"
 
@@ -115,7 +116,7 @@ welcome_message() {
 
     echo -e "${BLUE}=== ACTION PLAN ===${NC}"
     echo " 1. Mount external home"
-    echo " 2. Install:   dotfiles (they bootstrap paru), packages, personal scripts and timers"
+    echo " 2. Install:   .files, desktop (it bootstraps paru), packages, personal scripts and timers"
     echo " 3. Fix:       brightness, lofree fn keys, touchpad"
     echo " 4. Optimize:  boot params, nvidia rtd3, mkinitcpio, bootloader timeout + default"
     echo " 5. Configure: UKI, wifi, daemons, GPU wait, firewall, reflector, multi-GPU,"
@@ -178,14 +179,18 @@ enable_multilib() {
     _log_ok "multilib enabled."
 }
 
-# Clones dotfiles (unless already present) and runs their installer: paru, packages, stow,
-# /etc files, login shell. Everything after this step can rely on paru and stow.
+# Clones .files and desktop (unless already present) and runs their installers:
+# .files links the terminal configs, desktop installs paru, the packages, /etc
+# files, autologin and the login shell. Everything after this step can rely on
+# paru and stow.
 install_dotfiles() {
-    _log_info "Installing dotfiles..."
+    _log_info "Installing .files and desktop..."
     command -v git &>/dev/null || sudo pacman -S --needed --noconfirm git
     [ -d "$HOME/.files" ] || git clone https://github.com/loureq177/.files.git "$HOME/.files"
+    [ -d "$DESKTOP_DIR" ] || git clone https://github.com/loureq177/desktop.git "$DESKTOP_DIR"
     bash "$HOME/.files/install.sh"
-    _log_ok "Dotfiles installed."
+    bash "$DESKTOP_DIR/install.sh"
+    _log_ok ".files and desktop installed."
 }
 
 install_packages() {
@@ -197,12 +202,16 @@ install_packages() {
     _log_ok "All packages installed."
 }
 
-# Links home/ into ~ the way the dotfiles link theirs: my own scripts and timers
-# (bedtime, rclone-sync) that have no place in the public dotfiles.
+# Links home/ into ~ the way .files and desktop link theirs: my own scripts and timers
+# (bedtime, rclone-sync), this laptop's hypr/local.lua and the shell's GPU wrapper,
+# which have no place in the public repos.
 install_personal_home() {
     _log_info "Linking personal scripts and units..."
-    mkdir -p "$HOME/.local/bin" "$HOME/.config/systemd/user" "$HOME/.config/rclone"
-    stow --dir "$SCRIPT_DIR" --target "$HOME" --restow home
+    # Real dirs, so stow links the files inside; systemd ignores a symlinked drop-in dir
+    mkdir -p "$HOME/.local/bin" "$HOME/.config/rclone" "$HOME/.config/systemd/user/quickshell.service.d"
+    # From here: stow reads the .stowrc of the current directory, and the desktop's
+    # one leaves local.lua out
+    (cd "$SCRIPT_DIR" && stow --target "$HOME" --restow home)
     systemctl --user daemon-reload 2>/dev/null || true
     _log_ok "Personal home linked."
 }
@@ -344,8 +353,8 @@ ACTION=="unbind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x0300
 ACTION=="unbind", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030200", TEST=="power/control", ATTR{power/control}="on"
 # Allow dGPU (and its audio function) to enter D3cold: saves ~8.5W on battery,
 # dropping idle from ~17W to ~8W. The Lenovo EC firmware dims the panel on
-# D3cold power cut, which is handled in userspace (quickshell SystemStatus.qml)
-# by re-applying backlight (+0%) when dGPU transitions to suspended.
+# D3cold power cut, which is handled in userspace (legion-backlight) by
+# writing the backlight again when the dGPU goes to suspended.
 ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", TEST=="d3cold_allowed", ATTR{d3cold_allowed}="1"
 EOF
 
@@ -505,7 +514,7 @@ configure_daemons() {
     _log_ok "Daemons configured."
 }
 
-# Holds the tty1 autologin (set up by the dotfiles) until both DRM symlinks exist:
+# Holds the tty1 autologin (set up by the desktop) until both DRM symlinks exist:
 # Hyprland starts right after login and would otherwise miss a GPU.
 configure_gpu_wait() {
     _log_info "Configuring GPU wait before autologin..."
