@@ -89,7 +89,6 @@ FLATPAK_PKGS=(
 )
 
 MISC_PKGS=(
-    acpid
     asciiquarium
     cmatrix-git
     botsay

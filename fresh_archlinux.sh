@@ -336,14 +336,14 @@ optimize_base_boot_params() {
     fi
 }
 
-# Enables NVIDIA RTD3 dynamic power management and DRM modesetting.
+# Enables NVIDIA RTD3 dynamic power management. The driver's default
+# (NVreg_DynamicPowerManagement=0x03) is already fine-grained on an Ampere laptop;
+# the udev rules let runtime PM and D3cold reach the dGPU.
 optimize_nvidia_rtd3() {
     _log_info "Configuring NVIDIA RTD3 (Dynamic Power Management)..."
     sudo rm -f /etc/modprobe.d/nvidia-blacklist.conf \
         /etc/modprobe.d/envycontrol.conf
     sudo tee /etc/modprobe.d/nvidia.conf >/dev/null <<'EOF'
-options nvidia-drm modeset=1
-options nvidia NVreg_DynamicPowerManagement=0x02
 options nvidia NVreg_RegistryDwords="EnableBrightnessControl=0"
 options nvidia NVreg_PreserveVideoMemoryAllocations=1
 EOF
@@ -363,7 +363,7 @@ EOF
     _log_ok "NVIDIA RTD3 configured."
 }
 
-# Slims the initramfs: minimal systemd hooks, max zstd, no module decompression.
+# Slims the initramfs: minimal systemd hooks, max zstd.
 # zstd unpacks equally fast at any level, so -19 only shrinks the UKI the firmware has to read and measure.
 # vfat is loaded in the initrd: loaded on demand for /boot, it waits behind the GPU drivers'
 # module loads and holds local-fs.target, and with it the whole boot, for 2-4 s.
@@ -376,12 +376,11 @@ MODULES=(vfat)
 HOOKS=(systemd autodetect microcode modconf block filesystems)
 COMPRESSION="zstd"
 COMPRESSION_OPTIONS=(-19 -T0)
-MODULES_DECOMPRESS="no"
 EOF
     _log_ok "mkinitcpio configured."
 }
 
-# Sets systemd-boot menu timeout to 0 for instant boot, and pins the default to the UKI:
+# Drops any systemd-boot menu timeout (unset, the menu stays hidden), and pins the default to the UKI:
 # without it systemd-boot boots the first entry by sort order, and an extra entry
 # (e.g. boot-report --diagnose) can take that place.
 # /boot is root-only, so even testing for the file needs sudo.
@@ -394,8 +393,8 @@ optimize_bootloader_timeout() {
     sudo mkdir -p "/boot/loader"
     sudo touch "$loader_file"
     sudo sed -i '/^[[:space:]]*\(timeout\|default\)\b/d' "$loader_file"
-    printf 'timeout 0\ndefault arch-linux.efi\n' | sudo tee -a "$loader_file" >/dev/null
-    _log_ok "Bootloader timeout set to 0 and default to arch-linux.efi in $loader_file."
+    echo 'default arch-linux.efi' | sudo tee -a "$loader_file" >/dev/null
+    _log_ok "Bootloader menu hidden and default set to arch-linux.efi in $loader_file."
 }
 
 # -- Configuration -----------------------------------------------------------
@@ -444,7 +443,6 @@ configure_daemons() {
     local sys_disable=(
         fwupd-refresh.timer               # for firmware updates
         fwupd-refresh.service             # for firmware updates
-        NetworkManager-dispatcher.service # runs 0 scripts after nm changes it's state
         systemd-userdbd.socket            # user database (I am the only one)
         remote-fs.target                  # remote filesystems
     )
@@ -459,8 +457,7 @@ configure_daemons() {
         avahi-daemon.socket # for printer/hostname discovery
         avahi-daemon.service
         pcscd.socket # for YubiKey support
-        cups.socket  # for printing (socket activation)
-        cups.service # for printing
+        cups.socket # for printing: cupsd starts when something prints
         sshd.service
         paccache.timer
         nvidia-cdi-refresh.path    # regenerates the CDI spec on driver/toolkit upgrades
