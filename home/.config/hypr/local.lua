@@ -45,7 +45,7 @@ return {
 		set("LIBVA_DRIVER_NAME", on_dgpu and "nvidia" or "radeonsi")
 	end,
 
-	laptop = { output = "desc:BOE 0x0998", mode = "1920x1080@165" },
+	laptop = { output = "desc:BOE 0x0998" },
 
 	-- `laptop`: where the panel goes while this monitor is connected. Left of
 	-- the 2560x1440 iiyama with the bottom edges aligned (1440 - 1080 = y 360),
