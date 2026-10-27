@@ -251,7 +251,32 @@ ACTION=="add", SUBSYSTEM=="input", ATTRS{name}=="ELAN06FA:00*", TEST=="power/con
 EOF
     sudo udevadm control --reload-rules
 
-    _log_ok "Touchpad PM udev rules applied."
+    # On 7.2.x the touchpad sometimes NAKs the power-on at resume ("i2c_hid_acpi
+    # i2c-ELAN06FA:00: PM: failed to resume async: error -121") and is left
+    # half-awake: no multitouch, odd pointer. A fresh probe brings it back, so the
+    # driver is rebound after every wake. sleep.target holds the unit through the
+    # sleep and stops it on wake, which runs ExecStop. A rebind at the very instant
+    # of resume can leave multitouch dead, hence the wait.
+    sudo tee /etc/systemd/system/elan-touchpad-resume.service >/dev/null <<'EOF'
+[Unit]
+Description=Rebind the ELAN touchpad after resume
+ConditionPathExists=/sys/bus/i2c/devices/i2c-ELAN06FA:00
+Before=sleep.target
+StopWhenUnneeded=yes
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/true
+ExecStop=/bin/sh -c 'sleep 2; cd /sys/bus/i2c/drivers/i2c_hid_acpi || exit 1; [ ! -e i2c-ELAN06FA:00 ] || echo -n i2c-ELAN06FA:00 >unbind; for i in 1 2 3 4 5; do echo -n i2c-ELAN06FA:00 >bind && exit 0; sleep 1; done; exit 1'
+
+[Install]
+WantedBy=sleep.target
+EOF
+    sudo systemctl daemon-reload
+    sudo systemctl enable elan-touchpad-resume.service || _log_warn "Failed to enable elan-touchpad-resume."
+
+    _log_ok "Touchpad PM udev rules and resume rebind applied."
 }
 
 # Adds or replaces kernel boot parameters in /etc/kernel/cmdline.
