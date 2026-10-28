@@ -225,7 +225,9 @@ fix_display_brightness() {
     _log_ok "Brightness boot parameters applied."
 }
 
-# Fixes Lofree keyboard function keys by setting hid_apple fnmode parameter.
+# Fixes Lofree keyboard function keys by setting hid_apple fnmode parameter,
+# and its knob, which sends every notch as two volume key taps: keyd lets
+# only the second of each pair through, so a notch is one 5% volume step.
 fix_fn_keys_lofree() {
     _log_info "Fixing Lofree function keys..."
     if [ -d "/sys/module/hid_apple" ]; then
@@ -235,6 +237,27 @@ fix_fn_keys_lofree() {
         _log_warn "hid_apple module not loaded. Is the keyboard connected?"
     fi
     _add_kernel_params "hid_apple.fnmode=2"
+
+    # The receiver passes for an Apple keyboard (05ac:024f). A device takes
+    # one keyd config only, so this one repeats default.conf's Caps Lock.
+    sudo mkdir -p /etc/keyd
+    sudo tee /etc/keyd/lofree.conf >/dev/null <<'EOF'
+[ids]
+05ac:024f
+
+[main]
+capslock = overload(control, esc)
+volumeup = toggle(knobup)
+volumedown = toggle(knobdown)
+
+[knobup]
+volumeup = togglem(knobup, volumeup)
+
+[knobdown]
+volumedown = togglem(knobdown, volumedown)
+EOF
+    sudo keyd reload 2>/dev/null || true
+    _log_ok "Lofree knob: one volume step a notch."
 }
 
 # Applies udev rules to fix Lenovo Legion touchpad I2C runtime power management issues.

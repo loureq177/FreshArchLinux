@@ -17,8 +17,8 @@ It is the private part of my setup. The public parts are
 - **Installations:** enables `multilib`, clones `.files` and `desktop` and runs
   their installers (the desktop's builds `paru` and installs its package lists),
   then installs `packages.sh` and links `home/` into `~`.
-- **Fixes:** Kernel parameters for Lenovo Legion touchpads, Lofree Fn keys, and
-  NVIDIA/AMD hybrid brightness.
+- **Fixes:** Kernel parameters for Lenovo Legion touchpads, Lofree Fn keys (and
+  its volume knob, through keyd), and NVIDIA/AMD hybrid brightness.
 - **Optimizations:** Kernel boot parameters, a slim `mkinitcpio` (with `vfat`
   inside, so `/boot` does not stall the boot), the tty font set by the kernel
   instead of `systemd-vconsole-setup`, and NVIDIA RTD3 for power saving.
