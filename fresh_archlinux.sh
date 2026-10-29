@@ -120,8 +120,8 @@ welcome_message() {
     echo " 2. Install:   .files, desktop (it bootstraps paru), packages, personal scripts and timers"
     echo " 3. Fix:       brightness, lofree fn keys, touchpad"
     echo " 4. Optimize:  boot params, nvidia rtd3, mkinitcpio, bootloader timeout + default"
-    echo " 5. Configure: UKI, wifi, daemons, GPU wait, firewall, reflector, multi-GPU,"
-    echo "               web apps, tty font, fingerprint"
+    echo " 5. Configure: UKI, wifi, keyd, daemons, GPU wait, fast shutdown, firewall,"
+    echo "               reflector, multi-GPU, tty font, fingerprint"
     echo " 6. Clean up"
     echo -e "${BLUE}===================${NC}\n"
 
@@ -266,9 +266,7 @@ fix_touchpad() {
 
     sudo tee /etc/udev/rules.d/50-touchpad-pm.rules >/dev/null <<'EOF'
 ACTION=="add", SUBSYSTEM=="platform", KERNEL=="AMDI0010:*", TEST=="power/control", ATTR{power/control}="on"
-ACTION=="add", SUBSYSTEM=="platform", KERNEL=="CUST0001:*", TEST=="power/control", ATTR{power/control}="on"
 ACTION=="add", SUBSYSTEM=="i2c", KERNEL=="*ELAN*", TEST=="power/control", ATTR{power/control}="on"
-ACTION=="add", SUBSYSTEM=="i2c", KERNEL=="*CUST*", TEST=="power/control", ATTR{power/control}="on"
 ACTION=="add", SUBSYSTEM=="hid", ATTRS{name}=="ELAN06FA:00", TEST=="power/control", ATTR{power/control}="on"
 ACTION=="add", SUBSYSTEM=="input", ATTRS{name}=="ELAN06FA:00*", TEST=="power/control", ATTR{power/control}="on"
 EOF
@@ -349,7 +347,6 @@ optimize_base_boot_params() {
         mem_sleep_default=deep
         quiet
         loglevel=3
-        rd.systemd.show_status=false
         systemd.show_status=false
         rd.udev.log_level=3
         nowatchdog
@@ -357,7 +354,6 @@ optimize_base_boot_params() {
         tsc=reliable
         split_lock_detect=off
         mitigations=off
-        amd_pstate=active
         console=tty1
         8250.nr_uarts=0
         # Arch's default minus bpf. systemd attaches a BPF LSM program at start, which turns
@@ -372,13 +368,12 @@ optimize_base_boot_params() {
         SYSTEMD_DEFAULT_MOUNT_RATE_LIMIT_BURST=100
     )
     _log_info "Configuring base boot parameters (performance, power)..."
-    # Left over from earlier attempts at silencing the TPM: tpm_tis.* never applied (this
-    # one is a CRB device) and systemd.mask= did not stop the initrd's TPM units.
-    _remove_kernel_params tpm_tis.interrupts tpm_tis.force systemd.mask
     _add_kernel_params "${params[@]}"
 
-    # The TPM drivers are built into Arch's kernel, so a modprobe blacklist never applied.
-    sudo rm -f /etc/modprobe.d/tpm-blacklist.conf
+    # nowatchdog only stops the kernel's lockup detectors; the chipset's hardware
+    # watchdog (sp5100_tco on this AMD board) is a module of its own.
+    echo 'blacklist sp5100_tco' | sudo tee /etc/modprobe.d/nowatchdog.conf >/dev/null
+
     if [ -e /sys/class/tpm/tpm0 ]; then
         _log_warn "TPM is enabled: nothing here uses it, but firmware and systemd-stub measure every boot. Turn it off in the BIOS (Security)."
     fi
@@ -389,8 +384,6 @@ optimize_base_boot_params() {
 # the udev rules let runtime PM and D3cold reach the dGPU.
 optimize_nvidia_rtd3() {
     _log_info "Configuring NVIDIA RTD3 (Dynamic Power Management)..."
-    sudo rm -f /etc/modprobe.d/nvidia-blacklist.conf \
-        /etc/modprobe.d/envycontrol.conf
     sudo tee /etc/modprobe.d/nvidia.conf >/dev/null <<'EOF'
 options nvidia NVreg_RegistryDwords="EnableBrightnessControl=0"
 options nvidia NVreg_PreserveVideoMemoryAllocations=1
@@ -490,7 +483,6 @@ EOF
 configure_daemons() {
     local sys_disable=(
         fwupd-refresh.timer               # for firmware updates
-        fwupd-refresh.service             # for firmware updates
         systemd-userdbd.socket            # user database (I am the only one)
         remote-fs.target                  # remote filesystems
     )
@@ -508,14 +500,11 @@ configure_daemons() {
         cups.socket # for printing: cupsd starts when something prints
         sshd.service
         paccache.timer
-        nvidia-cdi-refresh.path    # regenerates the CDI spec on driver/toolkit upgrades
-        nvidia-cdi-refresh.service # generates the CDI spec on boot
     )
 
     local sys_mask=(
         systemd-tpm2-setup-early.service   # encryption support
         systemd-tpm2-setup.service         # encryption support
-        watchdog.service                   # for battery saving
         wpa_supplicant.service             # default nm backend is iwd
         NetworkManager-wait-online.service # don't wait for wifi connect on startup
         systemd-pcrproduct.service         # TPM2 PCR measurement
@@ -523,9 +512,6 @@ configure_daemons() {
         systemd-pcrphase-initrd.service    # TPM2
         systemd-pcrphase.service           # TPM2
         nvidia-persistenced.service
-        lvm2-monitor.service        # disable if not using LVM
-        systemd-udev-settle.service # obsolete, slows down boot
-        ModemManager.service        # disable if not using cellular modem
     )
 
     local usr_enable=(
@@ -625,7 +611,6 @@ configure_firewall() {
     # systemd drop-ins cannot remove dependencies, so we must copy the full unit
     sudo cp /usr/lib/systemd/system/ufw.service /etc/systemd/system/ufw.service
     sudo sed -i 's/Before=sysinit.target/Before=network-pre.target\nWants=network-pre.target/' /etc/systemd/system/ufw.service
-    sudo rm -rf /etc/systemd/system/ufw.service.d
     sudo systemctl daemon-reload
 
     _log_ok "Firewall configured properly"
@@ -653,7 +638,6 @@ EOF
 configure_tty_font() {
     _log_info "Configuring tty font..."
     _add_kernel_params "fbcon=font:TER16x32"
-    [ ! -f /etc/vconsole.conf ] || sudo sed -i '/^FONT=/d' /etc/vconsole.conf
     sudo ln -sf /dev/null /etc/udev/rules.d/90-vconsole.rules
     sudo systemctl mask systemd-vconsole-setup.service
     _log_ok "Kernel sets the tty font; systemd-vconsole-setup masked."
@@ -732,8 +716,8 @@ clean_dot_desktop() {
     local apps=(
         libreoffice-startcenter
         libreoffice-draw libreoffice-math
-        libreoffice-base avahi-discover bssh bvnc cmake-gui
-        com.prusa3d.PrusaSlicer.GCodeViewer nvidia-settings
+        libreoffice-base cmake-gui
+        PrusaGcodeviewer nvidia-settings
         assistant designer linguist qdbusviewer xdvi
     )
 

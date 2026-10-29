@@ -22,8 +22,8 @@ It is the private part of my setup. The public parts are
 - **Optimizations:** Kernel boot parameters, a slim `mkinitcpio` (with `vfat`
   inside, so `/boot` does not stall the boot), the tty font set by the kernel
   instead of `systemd-vconsole-setup`, and NVIDIA RTD3 for power saving.
-- **Configurations:** Daemons, UFW firewall, UKI presets, fingerprint auth, web
-  app launchers, and a wait for both GPUs before the tty1 autologin.
+- **Configurations:** Daemons, UFW firewall, UKI presets, fingerprint auth, keyd,
+  a faster shutdown, and a wait for both GPUs before the tty1 autologin.
 
 ## `home/`
 
