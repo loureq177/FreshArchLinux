@@ -180,16 +180,13 @@ enable_multilib() {
     _log_ok "multilib enabled."
 }
 
-# Clones .files and desktop (unless already present) and runs their installers:
-# .files links the terminal configs, desktop installs paru, the packages, /etc
-# files, autologin and the login shell. Everything after this step can rely on
-# paru and stow.
+# Clones desktop (unless already present) and runs its installer, which clones and
+# installs .files too: paru, the packages, /etc files, autologin, the terminal and
+# the login shell. Everything after this step can rely on paru and stow.
 install_dotfiles() {
     _log_info "Installing .files and desktop..."
     command -v git &>/dev/null || sudo pacman -S --needed --noconfirm git
-    [ -d "$HOME/.files" ] || git clone https://github.com/loureq177/.files.git "$HOME/.files"
     [ -d "$DESKTOP_DIR" ] || git clone https://github.com/loureq177/desktop.git "$DESKTOP_DIR"
-    bash "$HOME/.files/install.sh"
     bash "$DESKTOP_DIR/install.sh"
     _log_ok ".files and desktop installed."
 }

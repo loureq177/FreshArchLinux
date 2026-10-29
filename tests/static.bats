@@ -26,14 +26,14 @@ load helpers
     [[ -z "$dups" ]] || fail "listed more than once:" "$dups"
 }
 
-@test "no package is listed both here and in the desktop" {
+@test "no package is listed both here and in the desktop or .files" {
     local dotfiles="$HOME/Projects/desktop"
     [[ -d "$dotfiles" ]] || skip "desktop is not checked out at ~/Projects/desktop"
     local both
     both="$(comm -12 \
         <(bash -c 'source "$1"; printf "%s\n" "${SYSTEM_PKGS[@]}" "${GPU_PKGS[@]}" "${APP_PKGS[@]}" "${MISC_PKGS[@]}"' _ "$REPO/packages.sh" | sort -u) \
-        <(grep -hvE '^\s*(#|$)' "$dotfiles"/{packages.txt,packages-laptop.txt,aur.txt} | sort -u))"
-    [[ -z "$both" ]] || fail "also installed by the desktop:" "$both"
+        <(grep -hvE '^\s*(#|$)' "$dotfiles"/{packages.txt,packages-laptop.txt,aur.txt} "$HOME/.files/packages-arch.txt" 2>/dev/null | sort -u))"
+    [[ -z "$both" ]] || fail "also installed by the desktop or .files:" "$both"
 }
 
 @test "every unit fresh_archlinux.sh enables from home/ exists there, and the other way round" {
