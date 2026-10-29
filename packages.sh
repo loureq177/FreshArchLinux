@@ -1,12 +1,8 @@
 # shellcheck shell=bash disable=SC2034
 SYSTEM_PKGS=(
     amd-ucode
-    avahi
     bluez
     bluez-utils
-    ca-certificates
-    cups
-    cups-filters
     cups-pdf
     cups-pk-helper
     dmidecode
@@ -14,14 +10,10 @@ SYSTEM_PKGS=(
     iwd
     keyd
     libcamera
-    libfido2
     libfprint-2-tod1-elan
-    libfprint-tod
-    linux-firmware
     linux-headers
     nss-mdns
     pam-u2f
-    pciutils
     reflector
     sof-firmware
     system-config-printer
@@ -34,15 +26,12 @@ SYSTEM_PKGS=(
 )
 
 GPU_PKGS=(
-    lib32-nvidia-utils
     lib32-vulkan-radeon
     libva-nvidia-driver
     mesa-utils
     nvidia-open-dkms
     nvidia-prime
     nvidia-settings
-    nvidia-utils
-    vulkan-radeon
     vulkan-tools
 )
 
@@ -58,7 +47,6 @@ APP_PKGS=(
     distrobox
     freecad
     gimp
-    libreoffice-fresh
     libreoffice-fresh-pl
     llama-cpp
     localsend
@@ -71,10 +59,6 @@ APP_PKGS=(
     rclone
     termshark
     trace-cmd
-    texlive-basic
-    texlive-latex
-    texlive-latexrecommended
-    texlive-fontsrecommended
     texlive-binextra
     texlive-latexextra
     texlive-mathscience
@@ -97,6 +81,4 @@ MISC_PKGS=(
     espeak-ng
     jre-openjdk
     speech-dispatcher
-    valkey
-    x264
 )
