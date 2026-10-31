@@ -5,7 +5,8 @@ set -uo pipefail
 # the platform profile changes, without touching the brightness value. Writing
 # the value again makes it take effect; the firmware needs a different value in
 # between, and now and then a second try. sysfs sends no change events for
-# either file, so they are polled. --once restores the panel and exits.
+# either file, so they are polled: fast only while the GPU is awake, to catch the
+# moment it sleeps before the eye does. --once restores the panel and exits.
 
 nudge() {
     local cur
@@ -33,19 +34,32 @@ profile_file=/sys/firmware/acpi/platform_profile
 sleep 4
 restore
 
-gpu="$(cat "$gpu_file" 2>/dev/null)"
-profile="$(cat "$profile_file" 2>/dev/null)"
-while sleep 2; do
+# A read with a timeout on this is a sleep without a process.
+exec 3<> <(:)
+
+read -r gpu <"$gpu_file" || gpu=
+read -r profile <"$profile_file" || profile=
+while :; do
     gpu_was=$gpu profile_was=$profile
-    gpu="$(cat "$gpu_file" 2>/dev/null)"
-    profile="$(cat "$profile_file" 2>/dev/null)"
-    # It dims when the power is cut, at the end of "suspending", not its start.
+    read -r gpu <"$gpu_file" || gpu=
+    read -r profile <"$profile_file" || profile=
+    # It dims as the power is cut: within a frame or two of that, then again in case the
+    # firmware was not done yet.
     if [[ "$gpu" == suspended && "$gpu_was" != suspended ]]; then
-        sleep 0.4
-        restore
+        nudge
+        sleep 0.15
+        nudge
+        sleep 0.35
+        nudge
     # A new profile dims it a few seconds later.
     elif [[ "$profile" != "$profile_was" ]]; then
         sleep 12
         restore
+    fi
+    # Only a GPU that is awake can lose its power, and it is rarely awake.
+    if [[ "$gpu" == suspended ]]; then
+        sleep 2
+    else
+        read -r -t 0.02 -u 3 _ || true
     fi
 done
