@@ -12,14 +12,11 @@ SYSTEM_PKGS=(
     libcamera
     libfprint-2-tod1-elan
     networkmanager-openvpn
-    nss-mdns
     pam-u2f
     reflector
     sof-firmware
     system-config-printer
     tailscale
-    terminus-font
-    udiskie
     ufw
     usbutils
     yubikey-manager
@@ -38,7 +35,6 @@ GPU_PKGS=(
 # Applications and tools only I need; the dotfiles install what their configs use.
 APP_PKGS=(
     antigravity-cli
-    arch-audit
     arduino-cli
     atac
     audacity
@@ -51,7 +47,6 @@ APP_PKGS=(
     libreoffice-fresh-pl
     llama-cpp
     lolcat
-    lynis
     mkinitcpio-firmware
     php
     pinta
@@ -59,8 +54,6 @@ APP_PKGS=(
     prusa-slicer
     rclone
     speedtest-cli
-    termshark
-    trace-cmd
     vortix
     texlive-binextra
     texlive-latexextra
@@ -80,7 +73,6 @@ MISC_PKGS=(
     cmatrix-git
     botsay
     cowsay
-    epiphany
     espeak-ng
     jre-openjdk
     speech-dispatcher
