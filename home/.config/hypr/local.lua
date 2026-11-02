@@ -8,14 +8,14 @@ return {
 
 	laptop = { output = "desc:BOE 0x0998" },
 
-	-- `laptop`: where the panel goes while this monitor is connected. Left of
-	-- the 2560x1440 iiyama with the bottom edges aligned (1440 - 1080 = y 360),
-	-- or left of the row of two 1920x1080 HPs.
+	-- `laptop`: where the panel goes while this monitor is connected. Under the
+	-- 2560x1440 iiyama, centred ((2560 - 1920) / 2 = x 320), or left of the row
+	-- of two 1920x1080 HPs.
 	monitors = {
 		{
 			output = "desc:iiyama Corporation PL2792Q 1152011401936",
 			position = "0x0",
-			laptop = "-1920x360",
+			laptop = "320x1440",
 		},
 		{
 			output = "desc:Hewlett Packard HP E231 6CM4310BTR",
