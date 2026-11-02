@@ -11,7 +11,6 @@ SYSTEM_PKGS=(
     keyd
     libcamera
     libfprint-2-tod1-elan
-    linux-headers
     networkmanager-openvpn
     nss-mdns
     pam-u2f
@@ -51,7 +50,6 @@ APP_PKGS=(
     freecad
     libreoffice-fresh-pl
     llama-cpp
-    localsend
     lolcat
     lynis
     mkinitcpio-firmware
