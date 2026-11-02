@@ -25,7 +25,8 @@ return {
 		{ output = "desc:Hewlett Packard HP E231 6CM3252T9W", position = "1920x0" },
 	},
 
+	-- The mic at +26 dB: the loudest laugh peaks at -1 dBFS, measured 2026-11-02; 0.3 clipped it.
 	autostart = {
-		"wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 0.3",
+		"wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 0.27",
 	},
 }
