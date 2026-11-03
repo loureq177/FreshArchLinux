@@ -1,0 +1,34 @@
+# Lenovo's driver for the Elan 04f3:0c4b reader: upstream libfprint enrolls on it but
+# never matches. It wants OpenSSL 1.1 for nine calls; crypto.c passes them to OpenSSL 3.
+
+pkgname=libfprint-2-tod1-elan
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Elan 04f3:0c4b fingerprint driver for libfprint-tod, from Lenovo"
+arch=('x86_64')
+url="https://download.lenovo.com/pccbbs/mobiles/r1sle01w.zip"
+license=('LicenseRef-Lenovo')
+depends=('libfprint-tod' 'openssl')
+conflicts=('openssl-1.1')
+options=('!debug')
+source=("r1sle01w.zip::$url" "crypto.c" "crypto.map")
+sha256sums=('d946267aff6b7fcd6781e43858c1906be46a5ec54fc6d7ece8d841c553064860' 'SKIP' 'SKIP')
+
+# Lenovo published it once (sysupdate asks).
+_latest() {
+    printf '%s\n' "$pkgver"
+}
+
+prepare() {
+    bsdtar -xf "libfprint-2-tod1-elan_${pkgver}_Ubuntu20.04.zip"
+}
+
+build() {
+    gcc $CFLAGS -shared -fPIC $LDFLAGS -Wl,-soname,libcrypto.so.1.1 -Wl,--version-script=crypto.map \
+        crypto.c -o libcrypto.so.1.1
+}
+
+package() {
+    install -Dm755 libfprint-2-tod1-elan.so "$pkgdir/usr/lib/libfprint-2/tod-1/libfprint-2-tod1-elan.so"
+    install -Dm755 libcrypto.so.1.1 "$pkgdir/usr/lib/libcrypto.so.1.1"
+}

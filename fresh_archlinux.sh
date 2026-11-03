@@ -32,8 +32,8 @@ main() {
     # -- Installations ------------
     enable_multilib
     install_dotfiles
-    install_packages
     install_personal_home
+    install_packages
 
     # -- Fixes --------------------
     fix_display_brightness
@@ -117,7 +117,7 @@ welcome_message() {
 
     echo -e "${BLUE}=== ACTION PLAN ===${NC}"
     echo " 1. Mount external home"
-    echo " 2. Install:   .files, desktop (it bootstraps paru), packages, personal scripts and timers"
+    echo " 2. Install:   .files, desktop, personal scripts and timers, packages"
     echo " 3. Fix:       brightness, lofree fn keys, touchpad"
     echo " 4. Optimize:  boot params, nvidia rtd3, mkinitcpio, bootloader timeout + default"
     echo " 5. Configure: UKI, wifi, keyd, daemons, GPU wait, fast shutdown, firewall,"
@@ -181,8 +181,8 @@ enable_multilib() {
 }
 
 # Clones desktop (unless already present) and runs its installer, which clones and
-# installs .files too: paru, the packages, /etc files, autologin, the terminal and
-# the login shell. Everything after this step can rely on paru and stow.
+# installs .files too: the packages, /etc files, autologin, the terminal and the
+# login shell. Everything after this step can rely on stow.
 install_dotfiles() {
     _log_info "Installing .files and desktop..."
     command -v git &>/dev/null || sudo pacman -S --needed --noconfirm git
@@ -191,9 +191,20 @@ install_dotfiles() {
     _log_ok ".files and desktop installed."
 }
 
+# The official ones and home/.local/share/pkgbuilds (linked by install_personal_home):
+# the fingerprint stack from its makers, in place of the libfprint the desktop's fprintd
+# brought.
 install_packages() {
     _log_info "Installing all packages..."
-    paru -S --noconfirm --needed "${SYSTEM_PKGS[@]}" "${GPU_PKGS[@]}" "${APP_PKGS[@]}" "${MISC_PKGS[@]}"
+    local name
+    source "$DESKTOP_DIR/home/.local/lib/dotfiles/pkgbuilds.sh"
+    if pacman -Qq libfprint 2>/dev/null | grep -qx libfprint; then
+        sudo pacman -Rdd --noconfirm libfprint
+    fi
+    for name in libfprint-tod libfprint-2-tod1-elan; do
+        pacman -Q "$name" &>/dev/null || pkgbuild_install "$name" "$(pkgbuild_latest "$name" 2>/dev/null || true)"
+    done
+    sudo pacman -S --noconfirm --needed "${SYSTEM_PKGS[@]}" "${GPU_PKGS[@]}" "${APP_PKGS[@]}" "${MISC_PKGS[@]}"
     if command -v flatpak &>/dev/null; then
         flatpak install --user -y --or-update flathub "${FLATPAK_PKGS[@]}"
     fi

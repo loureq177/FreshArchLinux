@@ -15,8 +15,8 @@ It is the private part of my setup. The public parts are
 ## Features
 
 - **Installations:** enables `multilib`, clones `.files` and `desktop` and runs
-  their installers (the desktop's builds `paru` and installs its package lists),
-  then installs `packages.sh` and links `home/` into `~`.
+  their installers, links `home/` into `~`, then installs `packages.sh` and the
+  fingerprint stack from `home/.local/share/pkgbuilds` (no AUR).
 - **Fixes:** Kernel parameters for Lenovo Legion touchpads, Lofree Fn keys (and
   its volume knob, through keyd), and NVIDIA/AMD hybrid brightness.
 - **Optimizations:** Kernel boot parameters, a slim `mkinitcpio` (with `vfat`

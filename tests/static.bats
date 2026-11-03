@@ -32,7 +32,7 @@ load helpers
     local both
     both="$(comm -12 \
         <(bash -c 'source "$1"; printf "%s\n" "${SYSTEM_PKGS[@]}" "${GPU_PKGS[@]}" "${APP_PKGS[@]}" "${MISC_PKGS[@]}"' _ "$REPO/packages.sh" | sort -u) \
-        <(grep -hvE '^\s*(#|$)' "$dotfiles"/{packages.txt,packages-laptop.txt,aur.txt} "$HOME/.files/packages-arch.txt" 2>/dev/null | sort -u))"
+        <(grep -hvE '^\s*(#|$)' "$dotfiles"/{packages.txt,packages-laptop.txt} "$HOME/.files/packages-arch.txt" 2>/dev/null | sort -u))"
     [[ -z "$both" ]] || fail "also installed by the desktop or .files:" "$both"
 }
 

@@ -10,7 +10,6 @@ SYSTEM_PKGS=(
     iwd
     keyd
     libcamera
-    libfprint-2-tod1-elan
     networkmanager-openvpn
     pam-u2f
     reflector
@@ -34,7 +33,6 @@ GPU_PKGS=(
 
 # Applications and tools only I need; the dotfiles install what their configs use.
 APP_PKGS=(
-    antigravity-cli
     arduino-cli
     atac
     audacity
@@ -47,7 +45,6 @@ APP_PKGS=(
     libreoffice-fresh-pl
     llama-cpp
     lolcat
-    mkinitcpio-firmware
     php
     pinta
     podman
@@ -70,7 +67,7 @@ FLATPAK_PKGS=(
 
 MISC_PKGS=(
     asciiquarium
-    cmatrix-git
+    cmatrix
     botsay
     cowsay
     espeak-ng

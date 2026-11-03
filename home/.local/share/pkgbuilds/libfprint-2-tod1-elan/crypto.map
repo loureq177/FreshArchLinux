@@ -1,0 +1,6 @@
+OPENSSL_1_1_0 {
+    global:
+        EVP_aes_256_cbc; EVP_sha256; EVP_CIPHER_block_size; EVP_CIPHER_CTX_new; EVP_CIPHER_CTX_free;
+        EVP_BytesToKey; EVP_CipherInit_ex; EVP_CipherUpdate; EVP_CipherFinal_ex;
+    local: *;
+};
