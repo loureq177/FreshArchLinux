@@ -1,0 +1,35 @@
+# SKlauncher's AppImage from its makers' releases, with the desktop entry and icon it carries.
+
+pkgname=sklauncher
+pkgver=4.0.56
+pkgrel=1
+pkgdesc="Minecraft launcher for instances, mods and modpacks"
+arch=('x86_64')
+url="https://github.com/sklauncher/binaries"
+license=('LicenseRef-SKlauncher')
+depends=('fuse2' 'nvidia-prime')
+options=('!strip' '!debug')
+_appimage="SKlauncher-$pkgver-x86_64.AppImage"
+source=("$_appimage::$url/releases/download/v$pkgver/$_appimage" "sklauncher.sh")
+noextract=("$_appimage")
+sha256sums=('c3df8c74521ce9ed98d35cc9aa1124d28b367e3c4646572ae093b5b2f8eb4bb1' 'SKIP')
+
+# The newest release (sysupdate asks).
+_latest() {
+    curl -fsSI --max-time 15 -o /dev/null -w '%{redirect_url}' "$url/releases/latest" | sed -nE 's#.*/tag/v?##p'
+}
+
+prepare() {
+    chmod +x "$_appimage"
+    "./$_appimage" --appimage-extract 'pl.skmedix.sklauncher.desktop' >/dev/null
+    "./$_appimage" --appimage-extract 'usr/share/icons/hicolor/512x512/apps/sklauncher.png' >/dev/null
+}
+
+package() {
+    install -Dm755 "$_appimage" "$pkgdir/opt/sklauncher/SKlauncher.AppImage"
+    install -Dm755 sklauncher.sh "$pkgdir/usr/bin/sklauncher"
+    install -Dm644 squashfs-root/usr/share/icons/hicolor/512x512/apps/sklauncher.png \
+        "$pkgdir/usr/share/icons/hicolor/512x512/apps/sklauncher.png"
+    sed 's/^Exec=AppRun --no-sandbox/Exec=sklauncher/' squashfs-root/pl.skmedix.sklauncher.desktop |
+        install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/pl.skmedix.sklauncher.desktop"
+}

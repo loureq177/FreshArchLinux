@@ -192,7 +192,7 @@ install_dotfiles() {
 
 # The official ones and home/.local/share/pkgbuilds (linked by install_personal_home):
 # the fingerprint stack from its makers, in place of the libfprint the desktop's fprintd
-# brought.
+# brought, and SKlauncher.
 install_packages() {
     _log_info "Installing all packages..."
     local name
@@ -200,7 +200,7 @@ install_packages() {
     if pacman -Qq libfprint 2>/dev/null | grep -qx libfprint; then
         sudo pacman -Rdd --noconfirm libfprint
     fi
-    for name in libfprint-tod libfprint-2-tod1-elan; do
+    for name in libfprint-tod libfprint-2-tod1-elan sklauncher; do
         pacman -Q "$name" &>/dev/null || pkgbuild_install "$name" "$(pkgbuild_latest "$name" 2>/dev/null || true)"
     done
     sudo pacman -S --noconfirm --needed "${SYSTEM_PKGS[@]}" "${GPU_PKGS[@]}" "${APP_PKGS[@]}" "${MISC_PKGS[@]}"
