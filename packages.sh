@@ -12,7 +12,6 @@ SYSTEM_PKGS=(
     libcamera
     networkmanager-openvpn
     pam-u2f
-    reflector
     sof-firmware
     system-config-printer
     tailscale

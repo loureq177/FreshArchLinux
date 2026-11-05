@@ -38,13 +38,12 @@ to the links of `.files` and `desktop`:
   powers down or the platform profile changes; this writes the brightness again.
   `legion-backlight --once` does it by hand.
 - `hypr/local.lua`: this laptop for the desktop's Hyprland config: Polish layout
-  with Alt and Super swapped, the GPU order (the dGPU first while it drives a
-  display at login), the panel and the monitors at home and at work.
+  with Alt and Super swapped, the panel and the monitors at home and at work.
 - `bedtime` and its timer: Wi-Fi goes off at 22:00 and comes back at 07:00.
 - `mesa-egl` and `dgpu-run`: the session's shell keeps to the iGPU's EGL
   (`quickshell.service.d/mesa-egl.conf` starts it through `mesa-egl`), and
-  `dgpu-run` runs a program on the NVIDIA card despite the iGPU pin of
-  `local.lua`.
+  `dgpu-run` runs a program on the NVIDIA card despite the iGPU pin of the
+  desktop's `env.lua`.
 
 After changing what is in `home/`:
 

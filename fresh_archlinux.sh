@@ -54,7 +54,6 @@ main() {
     configure_gpu_wait
     configure_fast_shutdown
     configure_firewall
-    configure_reflector
     configure_hyprland_multigpu
     configure_tty_font
     configure_fingerprint
@@ -121,7 +120,7 @@ welcome_message() {
     echo " 3. Fix:       brightness, lofree fn keys, touchpad"
     echo " 4. Optimize:  boot params, nvidia rtd3, mkinitcpio, bootloader timeout + default"
     echo " 5. Configure: UKI, wifi, keyd, daemons, GPU wait, fast shutdown, firewall,"
-    echo "               reflector, multi-GPU, tty font, fingerprint"
+    echo "               multi-GPU, tty font, fingerprint"
     echo " 6. Clean up"
     echo -e "${BLUE}===================${NC}\n"
 
@@ -507,7 +506,6 @@ configure_daemons() {
         pcscd.socket # for YubiKey support
         cups.socket # for printing: cupsd starts when something prints
         sshd.service
-        paccache.timer
     )
 
     local sys_mask=(
@@ -622,21 +620,6 @@ configure_firewall() {
     sudo systemctl daemon-reload
 
     _log_ok "Firewall configured properly"
-}
-
-# Configures Reflector mirrorlist updater and enables its weekly systemd timer.
-configure_reflector() {
-    _log_info "Configuring Reflector..."
-    sudo mkdir -p /etc/xdg/reflector
-    sudo tee /etc/xdg/reflector/reflector.conf >/dev/null <<'EOF'
---save /etc/pacman.d/mirrorlist
---protocol https
---latest 5
---sort age
-EOF
-
-    sudo systemctl enable --now reflector.timer
-    _log_ok "Reflector configured and reflector.timer enabled."
 }
 
 # Large Terminus on the ttys, set by the kernel itself (TER16x32 is built in).
