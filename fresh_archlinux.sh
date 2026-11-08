@@ -526,6 +526,7 @@ configure_daemons() {
         rclone-sync.timer        # my own cloud sync daemon (home/)
         bedtime.timer            # wifi curfew (home/)
         legion-backlight.service # undoes the firmware's panel dimming (home/)
+        jolt.service             # battery history: charges and discharges
     )
 
     local usr_mask=(

@@ -41,6 +41,7 @@ APP_PKGS=(
     discord
     distrobox
     freecad
+    jolt
     libreoffice-fresh-pl
     llama-cpp
     lolcat
