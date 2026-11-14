@@ -7,10 +7,13 @@ SYSTEM_PKGS=(
     cups-pk-helper
     dmidecode
     dosfstools
+    efibootmgr
     iwd
+    kexec-tools
     keyd
     libcamera
     networkmanager-openvpn
+    openvpn
     pam-u2f
     sof-firmware
     system-config-printer
@@ -35,16 +38,12 @@ APP_PKGS=(
     arduino-cli
     atac
     audacity
-    aws-cli-v2
     bazaar
     chromium
     discord
-    distrobox
     freecad
     jolt
     libreoffice-fresh-pl
-    llama-cpp
-    lolcat
     php
     pinta
     podman
@@ -58,7 +57,6 @@ APP_PKGS=(
     texlive-langpolish
     texlive-fontsextra
     texlive-bibtexextra
-    biber
 )
 
 FLATPAK_PKGS=(
@@ -66,10 +64,7 @@ FLATPAK_PKGS=(
 )
 
 MISC_PKGS=(
-    asciiquarium
     cmatrix
-    botsay
-    cowsay
     espeak-ng
     jre-openjdk
     speech-dispatcher

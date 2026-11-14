@@ -44,19 +44,22 @@ main() {
     optimize_base_boot_params
     optimize_nvidia_rtd3
     optimize_mkinitcpio
+    optimize_amdgpu_load
     optimize_bootloader_timeout
 
     # -- Configurations -----------
     configure_uki_preset
+    optimize_reboot_kexec
+    optimize_direct_uki_boot
     configure_wifi_backend
     configure_keyd
     configure_daemons
     configure_gpu_wait
+    configure_early_user_sessions
     configure_fast_shutdown
     configure_firewall
     configure_hyprland_multigpu
     configure_tty_font
-    configure_fingerprint
 
     sudo mkinitcpio -P
 
@@ -85,7 +88,7 @@ run_steps() {
 # Everything mkinitcpio builds the UKIs from; boot parameter order does not matter.
 _uki_inputs() {
     { tr -s ' ' '\n' </etc/kernel/cmdline | sort; cat /etc/mkinitcpio.conf /etc/mkinitcpio.conf.d/* \
-        /etc/mkinitcpio.d/linux.preset /etc/modprobe.d/*; } 2>/dev/null || true
+        /etc/mkinitcpio.d/linux.preset /etc/modprobe.d/* /etc/initcpio/install/*; } 2>/dev/null || true
 }
 
 # Ensures the script runs as a regular user and keeps sudo credentials alive.
@@ -118,9 +121,10 @@ welcome_message() {
     echo " 1. Mount external home"
     echo " 2. Install:   .files, desktop, personal scripts and timers, packages"
     echo " 3. Fix:       brightness, lofree fn keys, touchpad"
-    echo " 4. Optimize:  boot params, nvidia rtd3, mkinitcpio, bootloader timeout + default"
+    echo " 4. Optimize:  boot params, nvidia rtd3, mkinitcpio, amdgpu load, bootloader timeout + default,"
+    echo "               UKI started by the firmware, reboots through kexec"
     echo " 5. Configure: UKI, wifi, keyd, daemons, GPU wait, fast shutdown, firewall,"
-    echo "               multi-GPU, tty font, fingerprint"
+    echo "               multi-GPU, tty font"
     echo " 6. Clean up"
     echo -e "${BLUE}===================${NC}\n"
 
@@ -190,19 +194,12 @@ install_dotfiles() {
     _log_ok ".files and desktop installed."
 }
 
-# The official ones and home/.local/share/pkgbuilds (linked by install_personal_home):
-# the fingerprint stack from its makers, in place of the libfprint the desktop's fprintd
-# brought, and SKlauncher.
+# The official ones and SKlauncher from home/.local/share/pkgbuilds (linked by install_personal_home).
 install_packages() {
     _log_info "Installing all packages..."
     local name
     source "$DESKTOP_DIR/home/.local/lib/dotfiles/pkgbuilds.sh"
-    if pacman -Qq libfprint 2>/dev/null | grep -qx libfprint; then
-        sudo pacman -Rdd --noconfirm libfprint
-    fi
-    for name in libfprint-tod libfprint-2-tod1-elan sklauncher; do
-        pacman -Q "$name" &>/dev/null || pkgbuild_install "$name" "$(pkgbuild_latest "$name" 2>/dev/null || true)"
-    done
+    pacman -Q sklauncher &>/dev/null || pkgbuild_install sklauncher "$(pkgbuild_latest sklauncher 2>/dev/null || true)"
     sudo pacman -S --noconfirm --needed "${SYSTEM_PKGS[@]}" "${GPU_PKGS[@]}" "${APP_PKGS[@]}" "${MISC_PKGS[@]}"
     if command -v flatpak &>/dev/null; then
         flatpak install --user -y --or-update flathub "${FLATPAK_PKGS[@]}"
@@ -376,6 +373,9 @@ optimize_base_boot_params() {
     )
     _log_info "Configuring base boot parameters (performance, power)..."
     _add_kernel_params "${params[@]}"
+    # Tried for the black screen before the lock: on this APU (DCN 2.1) the first mode set
+    # still took 0.84 s with it.
+    _remove_kernel_params amdgpu.seamless
 
     # nowatchdog only stops the kernel's lockup detectors; the chipset's hardware
     # watchdog (sp5100_tco on this AMD board) is a module of its own.
@@ -413,19 +413,116 @@ EOF
 
 # Slims the initramfs: minimal systemd hooks, max zstd.
 # zstd unpacks equally fast at any level, so -19 only shrinks the UKI the firmware has to read and measure.
+# nvme is loaded by name instead of through the block hook: systemd-modules-load has it in
+# before udev's coldplug gets to the controller (the root disk shows up ~0.15 s sooner), and
+# the hook's other drivers (the SD card reader) stay out, so udev has less to finish before
+# the switch to the real root. The root disk moved to another kind of controller needs the
+# hook back.
 # vfat is loaded in the initrd: loaded on demand for /boot, it waits behind the GPU drivers'
 # module loads and holds local-fs.target, and with it the whole boot, for 2-4 s.
 # No sd-vconsole: the kernel sets the console font (configure_tty_font).
 optimize_mkinitcpio() {
     _log_info "Writing mkinitcpio drop-in (hooks, compression)..."
+
+    # Before the switch to the real root systemd stops the initrd's udevd, which waits for
+    # its workers, and one of them sits in a read of a USB device until the kernel is done
+    # with the built-in keyboard's hub: 0.3-0.6 s with / already mounted. What they would
+    # still write is thrown away right after (initrd-udevadm-cleanup-db), and the real
+    # root's udevd goes through every device again, so the initrd's is killed instead.
+    sudo mkdir -p /etc/initcpio/install
+    sudo tee /etc/initcpio/install/udev-fast-stop >/dev/null <<'EOF'
+#!/bin/bash
+build() {
+    local dir=/usr/lib/systemd/system/systemd-udevd.service.d
+    add_dir "$dir"
+    printf '[Service]\nKillSignal=SIGKILL\nSuccessExitStatus=SIGKILL\n' >"$BUILDROOT$dir/fast-stop.conf"
+}
+
+help() {
+    echo "Stops the initrd's udevd without waiting for its workers (FreshArchLinux optimize_mkinitcpio)."
+}
+EOF
+
     sudo mkdir -p /etc/mkinitcpio.conf.d
     sudo tee /etc/mkinitcpio.conf.d/custom.conf >/dev/null <<'EOF'
-MODULES=(vfat)
-HOOKS=(systemd autodetect microcode modconf block filesystems)
+MODULES=(nvme vfat)
+HOOKS=(systemd udev-fast-stop autodetect microcode modconf filesystems)
 COMPRESSION="zstd"
 COMPRESSION_OPTIONS=(-19 -T0)
 EOF
     _log_ok "mkinitcpio configured."
+}
+
+# amdgpu is what the desktop waits for longest: loading it takes ~4 s before its own init
+# even starts. The kernel checks each of a module's ftrace records (17 000 here, one per
+# function) with a linear search through the module's symbols (70 000), and no boot
+# parameter turns that off. A copy without the records skips it; depmod prefers updates/
+# over kernel/, and the package's file stays as it is. The cost: amdgpu's functions cannot
+# be traced with ftrace, and each of them calls an empty __fentry__. A pacman hook makes
+# the copy again for every new kernel.
+# To undo: rm /etc/pacman.d/hooks/71-amdgpu-noftrace.hook /usr/local/bin/amdgpu-noftrace,
+# rm -r /usr/lib/modules/*/updates/noftrace, depmod.
+optimize_amdgpu_load() {
+    _log_info "Building amdgpu without its ftrace records..."
+
+    sudo tee /usr/local/bin/amdgpu-noftrace >/dev/null <<'EOF'
+#!/bin/sh
+# A copy of amdgpu without its ftrace records, in updates/ of every installed kernel
+# (see optimize_amdgpu_load in FreshArchLinux). Run by 71-amdgpu-noftrace.hook.
+status=0
+for dir in /usr/lib/modules/*/; do
+    dir=${dir%/}
+    src=$dir/kernel/drivers/gpu/drm/amd/amdgpu/amdgpu.ko.zst
+    out=$dir/updates/noftrace
+    if [ ! -f "$src" ]; then
+        # A removed kernel: without this file its directory can go too.
+        rm -rf "$out"
+        rmdir "$dir/updates" "$dir" 2>/dev/null
+        continue
+    fi
+    tmp=$(mktemp -d) || exit 1
+    if zstd -dq "$src" -o "$tmp/in.ko" &&
+        objcopy --remove-section=__mcount_loc --remove-section=.rela__mcount_loc "$tmp/in.ko" "$tmp/amdgpu.ko" &&
+        zstd -q "$tmp/amdgpu.ko" -o "$tmp/amdgpu.ko.zst" &&
+        install -Dm644 "$tmp/amdgpu.ko.zst" "$out/amdgpu.ko.zst"; then
+        :
+    else
+        # Better the slow module than a half-written one.
+        echo "amdgpu-noftrace: failed for ${dir##*/}, keeping the packaged module" >&2
+        rm -rf "$out"
+        status=1
+    fi
+    rm -rf "$tmp"
+    depmod "${dir##*/}"
+done
+exit $status
+EOF
+    sudo chmod 755 /usr/local/bin/amdgpu-noftrace
+
+    # 71: after the kernel's depmod (60) and the DKMS builds (70).
+    sudo mkdir -p /etc/pacman.d/hooks
+    sudo tee /etc/pacman.d/hooks/71-amdgpu-noftrace.hook >/dev/null <<'EOF'
+[Trigger]
+Type = Path
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Target = usr/lib/modules/*/kernel/drivers/gpu/drm/amd/amdgpu/amdgpu.ko.zst
+
+[Action]
+Description = Building amdgpu without its ftrace records...
+When = PostTransaction
+Exec = /usr/local/bin/amdgpu-noftrace
+EOF
+
+    sudo /usr/local/bin/amdgpu-noftrace
+    local picked
+    picked=$(modinfo -n amdgpu)
+    if [[ "$picked" == */updates/noftrace/* ]]; then
+        _log_ok "amdgpu loads from $picked."
+    else
+        _log_warn "modprobe still picks $picked."
+    fi
 }
 
 # Drops any systemd-boot menu timeout (unset, the menu stays hidden), and pins the default to the UKI:
@@ -445,16 +542,91 @@ optimize_bootloader_timeout() {
     _log_ok "Bootloader menu hidden and default set to arch-linux.efi in $loader_file."
 }
 
+# The firmware starts the UKI itself: systemd-boot took ~0.6 s of every boot to start, read
+# its config and entries and hand over. Its own entry stays second in the boot order, for the
+# fallback image (the firmware's boot menu, then Space for systemd-boot's).
+# To undo: efibootmgr, then efibootmgr --delete-bootnum --bootnum <the entry's number>.
+optimize_direct_uki_boot() {
+    local label="Arch Linux UKI" esp disk part num
+    _log_info "Adding a firmware boot entry for the UKI..."
+    command -v efibootmgr &>/dev/null || sudo pacman -S --needed --noconfirm efibootmgr
+    esp=$(findmnt -no SOURCE /boot)
+    disk=$(lsblk -no PKNAME "$esp")
+    part=$(<"/sys/class/block/${esp##*/}/partition")
+    if [ -z "$disk" ] || [ -z "$part" ]; then
+        _log_warn "Could not tell the disk and partition of /boot ($esp) - skipping."
+        return 0
+    fi
+    # Boot0003* Arch Linux UKI<tab>HD(...): any earlier entry of ours goes first.
+    for num in $(sudo efibootmgr | sed -n "s/^Boot\([0-9A-F]\{4\}\)\*\? $label\(\t.*\)\?\$/\1/p"); do
+        sudo efibootmgr --quiet --delete-bootnum --bootnum "$num"
+    done
+    # A new entry goes to the front of the boot order.
+    sudo efibootmgr --quiet --create --disk "/dev/$disk" --part "$part" --label "$label" \
+        --loader '\EFI\Linux\arch-linux.efi'
+    _log_ok "The firmware boots /boot/EFI/Linux/arch-linux.efi first; systemd-boot is still there."
+}
+
+# A reboot starts the new kernel straight from the old one (kexec) instead of going back
+# through the firmware: no Legion logo, ~7 s less. systemd-reboot.service loads the kernel
+# as its last act and then asks for a kexec; with nothing loaded systemd falls back to a
+# real reboot by itself. Kernel, initramfs and command line are read from the root
+# filesystem, as /boot is already unmounted by then, and at reboot time, so a kernel update
+# needs nothing extra. The firmware's own start is still there for a power-on, for
+# `systemctl reboot --firmware-setup`, and after `touch /run/full-reboot`.
+# To undo: rm -r /etc/systemd/system/systemd-reboot.service.d /usr/local/bin/kexec-load.
+optimize_reboot_kexec() {
+    _log_info "Configuring reboots through kexec..."
+    command -v kexec &>/dev/null || sudo pacman -S --needed --noconfirm kexec-tools
+
+    sudo tee /usr/local/bin/kexec-load >/dev/null <<'EOF'
+#!/bin/sh
+# Loads the installed kernel for a kexec reboot (see optimize_reboot_kexec in FreshArchLinux).
+# Loads nothing when the reboot has to go through the firmware.
+[ -e /run/full-reboot ] && exit 0
+# Byte 5, bit 0 of OsIndications: boot into the firmware setup.
+indications=/sys/firmware/efi/efivars/OsIndications-8be4df61-93ca-11d2-aa0d-00e098032b8c
+if [ -e "$indications" ] && [ $(($(od -An -tu1 -j4 -N1 "$indications") & 1)) -eq 1 ]; then
+    exit 0
+fi
+kernel=""
+for dir in /usr/lib/modules/*/; do
+    [ "$(cat "${dir}pkgbase" 2>/dev/null)" = linux ] && kernel=${dir}vmlinuz
+done
+initrd=/var/lib/kexec/initramfs-linux.img
+[ -f "$kernel" ] && [ -f "$initrd" ] && [ -s /etc/kernel/cmdline ] || exit 0
+# Not older than the kernel it belongs to (a kernel update that failed to build it).
+[ "$initrd" -nt "$kernel" ] || exit 0
+exec kexec --load "$kernel" --initrd="$initrd" --command-line="$(cat /etc/kernel/cmdline)"
+EOF
+    sudo chmod 755 /usr/local/bin/kexec-load
+
+    sudo mkdir -p /etc/systemd/system/systemd-reboot.service.d
+    sudo tee /etc/systemd/system/systemd-reboot.service.d/kexec.conf >/dev/null <<'EOF'
+[Unit]
+SuccessAction=kexec-force
+
+[Service]
+Type=oneshot
+ExecStart=-/usr/local/bin/kexec-load
+EOF
+    sudo systemctl daemon-reload
+    _log_ok "Reboots go through kexec."
+}
+
 # -- Configuration -----------------------------------------------------------
 
 # Writes mkinitcpio preset for Unified Kernel Image generation.
 # No ALL_config: an explicit config (-c) makes mkinitcpio skip /etc/mkinitcpio.conf.d.
+# default_image: the initramfs on its own as well, on the root filesystem, for the kexec
+# reboot (optimize_reboot_kexec); kexec cannot load a UKI.
 configure_uki_preset() {
     _log_info "Configuring UKI presets..."
-    sudo mkdir -p /boot/EFI/Linux
+    sudo mkdir -p /boot/EFI/Linux /var/lib/kexec
     sudo tee /etc/mkinitcpio.d/linux.preset >/dev/null <<EOF
 ALL_kver="/boot/vmlinuz-linux"
 PRESETS=('default' 'fallback')
+default_image="/var/lib/kexec/initramfs-linux.img"
 default_uki="/boot/EFI/Linux/arch-linux.efi"
 default_options="--splash /usr/share/systemd/bootctl/splash-arch.bmp"
 fallback_uki="/boot/EFI/Linux/arch-linux-fallback.efi"
@@ -550,6 +722,11 @@ configure_daemons() {
     _each_unit "systemctl --user enable" "${usr_enable[@]}"
     _each_unit "systemctl --user mask" "${usr_mask[@]}"
 
+    # The user manager starts with the system instead of at the autologin, which then
+    # finds it running (~0.3 s less between login and Hyprland): it comes up, with
+    # PipeWire and the timers, while the boot waits for the GPUs anyway.
+    sudo loginctl enable-linger "$USER" || _log_warn "Failed to enable linger for $USER."
+
     _log_ok "Daemons configured."
 }
 
@@ -582,6 +759,19 @@ ExecStartPre=-/usr/local/bin/wait-for-gpus
 EOF
     sudo systemctl daemon-reload
     _log_ok "Autologin waits for the GPUs."
+}
+
+# The autologin and the user manager start after systemd-user-sessions, and that one waits
+# for network.target, so for iwd, which takes 1.4 s to start while the NVIDIA driver loads.
+# The order is there for homes on the network; without it the user manager is up long
+# before the GPUs are, and the login no longer waits ~0.3 s for it.
+# Drop-ins cannot remove an After=, so this is a copy of the unit.
+configure_early_user_sessions() {
+    _log_info "Letting user sessions start before the network..."
+    sed 's/^\(After=.*\) network\.target/\1/' /usr/lib/systemd/system/systemd-user-sessions.service |
+        sudo tee /etc/systemd/system/systemd-user-sessions.service >/dev/null
+    sudo systemctl daemon-reload
+    _log_ok "systemd-user-sessions no longer waits for network.target."
 }
 
 # Two fixed 1 s waits held every shutdown, and they run side by side, so both have to go:
@@ -633,70 +823,6 @@ configure_tty_font() {
     sudo ln -sf /dev/null /etc/udev/rules.d/90-vconsole.rules
     sudo systemctl mask systemd-vconsole-setup.service
     _log_ok "Kernel sets the tty font; systemd-vconsole-setup masked."
-}
-
-# Wires pam_fprintd (sufficient, so password stays as fallback) and enrolls a finger.
-configure_fingerprint() {
-    _log_info "Configuring fingerprint reader & PAM..."
-
-    # The reader is unreachable with the lid closed: skip pam_fprintd then,
-    # otherwise every prompt hangs ~30s on it before accepting the password.
-    printf '#!/bin/sh\ngrep -q closed /proc/acpi/button/lid/*/state 2>/dev/null\n' | sudo tee /usr/local/bin/lid-closed >/dev/null
-    sudo chmod 755 /usr/local/bin/lid-closed
-
-    _pam_add_fprintd() {
-        local file="$1" after="$2"
-        local guard='auth       [success=1 default=ignore]   pam_exec.so quiet /usr/local/bin/lid-closed'
-        local entry='auth       sufficient   pam_fprintd.so'
-        [ -f "$file" ] || return 0
-        sudo sed -i -e '/pam_fprintd\.so/d' -e '/lid-closed/d' "$file"
-        if grep -qE "$after" "$file"; then
-            sudo sed -i -E "/$after/a $guard\\n$entry" "$file"
-        else
-            sudo sed -i "1i $guard\\n$entry" "$file"
-        fi
-    }
-    [ -f /etc/pam.d/polkit-1 ] || sudo cp /usr/lib/pam.d/polkit-1 /etc/pam.d/polkit-1
-    _pam_add_fprintd /etc/pam.d/sudo '^#%PAM-1\.0'
-    _pam_add_fprintd /etc/pam.d/su 'pam_rootok\.so'
-    _pam_add_fprintd /etc/pam.d/polkit-1 '^#%PAM-1\.0'
-
-    # fprintd is D-Bus activated; give it a moment to claim the reader.
-    sudo systemctl start fprintd.service 2>/dev/null || true
-    local devices=""
-    for _ in {1..20}; do
-        devices=$(fprintd-list "$USER" 2>/dev/null) && break
-        sleep 0.5
-    done
-    if ! grep -q "Using device" <<<"$devices"; then
-        _log_warn "No fingerprint reader claimed — PAM wired, skipping enroll."
-        return 0
-    fi
-
-    local enrolled
-    enrolled=$(grep -cE '^\s*-\s*#[0-9]+:' <<<"$devices" || true)
-    if [ "$enrolled" -gt 0 ]; then
-        if [ "${FPRINT_REENROLL:-0}" != "1" ]; then
-            _log_ok "Fingerprint PAM configured ($enrolled print(s) already enrolled; FPRINT_REENROLL=1 to redo)."
-            return 0
-        fi
-        _log_info "Re-enrolling: removing $enrolled old print(s)..."
-        if ! fprintd-delete "$USER"; then
-            _log_warn "Could not delete old prints — keeping them."
-            return 0
-        fi
-    fi
-
-    _log_info "Enroll your finger (press firmly, don't swipe; several times)..."
-    if ! fprintd-enroll; then
-        _log_warn "Enroll failed/cancelled — password auth unaffected."
-        return 0
-    fi
-    if fprintd-verify; then
-        _log_ok "Fingerprint enrolled and verified (sudo/su/polkit-1)."
-    else
-        _log_warn "Enrolled, but verify did not match (often just a bad scan). Check with 'fprintd-verify' or rerun with FPRINT_REENROLL=1."
-    fi
 }
 
 # Hides unnecessary desktop entries via user-scope XDG override.

@@ -15,15 +15,22 @@ It is the private part of my setup. The public parts are
 ## Features
 
 - **Installations:** enables `multilib`, clones `.files` and `desktop` and runs
-  their installers, links `home/` into `~`, then installs `packages.sh`, and the
-  fingerprint stack and SKlauncher from `home/.local/share/pkgbuilds` (no AUR).
+  their installers, links `home/` into `~`, then installs `packages.sh` and
+  SKlauncher from `home/.local/share/pkgbuilds` (no AUR).
 - **Fixes:** Kernel parameters for Lenovo Legion touchpads, Lofree Fn keys (and
   its volume knob, through keyd), and NVIDIA/AMD hybrid brightness.
 - **Optimizations:** Kernel boot parameters, a slim `mkinitcpio` (with `vfat`
-  inside, so `/boot` does not stall the boot), the tty font set by the kernel
-  instead of `systemd-vconsole-setup`, and NVIDIA RTD3 for power saving.
-- **Configurations:** Daemons, UFW firewall, UKI presets, fingerprint auth, keyd,
-  a faster shutdown, and a wait for both GPUs before the tty1 autologin.
+  inside, so `/boot` does not stall the boot, `nvme` loaded by name, and its
+  udevd stopped without waiting), the UKI
+  started by the firmware itself (systemd-boot stays as the second boot entry),
+  reboots through kexec (no firmware start in between),
+  the tty font set by the kernel
+  instead of `systemd-vconsole-setup`, a copy of `amdgpu` without its ftrace
+  records (the kernel spends ~4 s of every boot checking them), and NVIDIA RTD3
+  for power saving.
+- **Configurations:** Daemons, UFW firewall, UKI presets, keyd,
+  a faster shutdown, a wait for both GPUs before the tty1 autologin, and the
+  user manager started with the system (linger), before the network is up.
 
 ## `home/`
 
