@@ -636,7 +636,7 @@ Description=kanata: the keys of ~/.config/kanata/kanata.kbd
 
 [Service]
 ExecStart=/usr/bin/kanata --nodelay --cfg $HOME/.config/kanata/kanata.kbd
-Restart=always
+Restart=on-failure
 RestartSec=1
 
 [Install]
