@@ -39,7 +39,6 @@ APP_PKGS=(
     atac
     audacity
     bazaar
-    chromium
     discord
     freecad
     jolt
