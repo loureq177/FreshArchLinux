@@ -46,13 +46,14 @@ main() {
     optimize_mkinitcpio
     optimize_amdgpu_load
     optimize_bootloader_timeout
+    optimize_boot_without_dgpu
 
     # -- Configurations -----------
     configure_uki_preset
     optimize_reboot_kexec
     optimize_direct_uki_boot
     configure_wifi_backend
-    configure_keyd
+    configure_keyboard
     configure_daemons
     configure_gpu_wait
     configure_early_user_sessions
@@ -122,8 +123,8 @@ welcome_message() {
     echo " 2. Install:   .files, desktop, personal scripts and timers, packages"
     echo " 3. Fix:       brightness, lofree fn keys, touchpad"
     echo " 4. Optimize:  boot params, nvidia rtd3, mkinitcpio, amdgpu load, bootloader timeout + default,"
-    echo "               UKI started by the firmware, reboots through kexec"
-    echo " 5. Configure: UKI, wifi, keyd, daemons, GPU wait, fast shutdown, firewall,"
+    echo "               UKI started by the firmware, reboots through kexec, boots without the dGPU"
+    echo " 5. Configure: UKI, wifi, kanata, daemons, GPU wait, fast shutdown, firewall,"
     echo "               multi-GPU, tty font"
     echo " 6. Clean up"
     echo -e "${BLUE}===================${NC}\n"
@@ -194,12 +195,13 @@ install_dotfiles() {
     _log_ok ".files and desktop installed."
 }
 
-# The official ones and SKlauncher from home/.local/share/pkgbuilds (linked by install_personal_home).
+# The official ones, SKlauncher and kanata from home/.local/share/pkgbuilds (linked by install_personal_home).
 install_packages() {
     _log_info "Installing all packages..."
     local name
     source "$DESKTOP_DIR/home/.local/lib/dotfiles/pkgbuilds.sh"
     pacman -Q sklauncher &>/dev/null || pkgbuild_install sklauncher "$(pkgbuild_latest sklauncher 2>/dev/null || true)"
+    pacman -Q kanata &>/dev/null || pkgbuild_install kanata
     sudo pacman -S --noconfirm --needed "${SYSTEM_PKGS[@]}" "${GPU_PKGS[@]}" "${APP_PKGS[@]}" "${MISC_PKGS[@]}"
     if command -v flatpak &>/dev/null; then
         flatpak install --user -y --or-update flathub "${FLATPAK_PKGS[@]}"
@@ -229,9 +231,7 @@ fix_display_brightness() {
     _log_ok "Brightness boot parameters applied."
 }
 
-# Fixes Lofree keyboard function keys by setting hid_apple fnmode parameter,
-# and its knob, which sends every notch as two volume key taps: keyd lets
-# only the second of each pair through, so a notch is one 5% volume step.
+# Fixes Lofree keyboard function keys by setting hid_apple fnmode parameter.
 fix_fn_keys_lofree() {
     _log_info "Fixing Lofree function keys..."
     if [ -d "/sys/module/hid_apple" ]; then
@@ -241,27 +241,6 @@ fix_fn_keys_lofree() {
         _log_warn "hid_apple module not loaded. Is the keyboard connected?"
     fi
     _add_kernel_params "hid_apple.fnmode=2"
-
-    # The receiver passes for an Apple keyboard (05ac:024f). A device takes
-    # one keyd config only, so this one repeats default.conf's Caps Lock.
-    sudo mkdir -p /etc/keyd
-    sudo tee /etc/keyd/lofree.conf >/dev/null <<'EOF'
-[ids]
-05ac:024f
-
-[main]
-capslock = overload(control, esc)
-volumeup = toggle(knobup)
-volumedown = toggle(knobdown)
-
-[knobup]
-volumeup = togglem(knobup, volumeup)
-
-[knobdown]
-volumedown = togglem(knobdown, volumedown)
-EOF
-    sudo keyd reload 2>/dev/null || true
-    _log_ok "Lofree knob: one volume step a notch."
 }
 
 # Applies udev rules to fix Lenovo Legion touchpad I2C runtime power management issues.
@@ -386,12 +365,12 @@ optimize_base_boot_params() {
     fi
 }
 
-# Enables NVIDIA RTD3 dynamic power management. The driver's default
-# (NVreg_DynamicPowerManagement=0x03) is already fine-grained on an Ampere laptop;
-# the udev rules let runtime PM and D3cold reach the dGPU.
+# Enables NVIDIA RTD3 dynamic power management, fine-grained (0x02): since 620.70 the default
+# 0x03 reads "Disabled by default" here; the udev rules let runtime PM and D3cold reach the dGPU.
 optimize_nvidia_rtd3() {
     _log_info "Configuring NVIDIA RTD3 (Dynamic Power Management)..."
     sudo tee /etc/modprobe.d/nvidia.conf >/dev/null <<'EOF'
+options nvidia NVreg_DynamicPowerManagement=0x02
 options nvidia NVreg_RegistryDwords="EnableBrightnessControl=0"
 options nvidia NVreg_PreserveVideoMemoryAllocations=1
 EOF
@@ -643,19 +622,30 @@ configure_wifi_backend() {
     _log_ok "NetworkManager wifi backend set to iwd."
 }
 
-# Caps Lock is Esc when tapped and Ctrl when held, on every keyboard.
-configure_keyd() {
-    sudo mkdir -p /etc/keyd
-    sudo tee /etc/keyd/default.conf >/dev/null <<'EOF'
-[ids]
-*
+# kanata on every keyboard with .files' kanata.kbd, the Mac's too (Caps Lock: Esc tapped,
+# Ctrl held; Tab held: hjkl are arrows). keyd, which did Caps Lock before, goes.
+configure_keyboard() {
+    if pacman -Q keyd &>/dev/null; then
+        sudo systemctl disable --now keyd || true
+        sudo pacman -Rns --noconfirm keyd
+    fi
+    sudo rm -rf /etc/keyd
+    sudo tee /etc/systemd/system/kanata.service >/dev/null <<EOF
+[Unit]
+Description=kanata: the keys of ~/.config/kanata/kanata.kbd
 
-[main]
-capslock = overload(control, esc)
+[Service]
+ExecStart=/usr/bin/kanata --nodelay --cfg $HOME/.config/kanata/kanata.kbd
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target
 EOF
-    sudo systemctl enable --now keyd || _log_warn "Failed to enable keyd."
-    sudo keyd reload 2>/dev/null || true
-    _log_ok "keyd configured."
+    sudo systemctl daemon-reload
+    sudo systemctl enable kanata || _log_warn "Failed to enable kanata."
+    sudo systemctl restart kanata || _log_warn "Failed to start kanata."
+    _log_ok "kanata configured."
 }
 
 # Enables, disables, and masks systemd services for the target system profile.
@@ -730,6 +720,18 @@ configure_daemons() {
     _log_ok "Daemons configured."
 }
 
+# Boots without the dGPU from now on: the autologin waits for amdgpu alone (2.8 s into the
+# boot instead of nvidia-drm's 4.1 s), and no D3cold dims the panel later. The desktop's power
+# menu switches it back for the dock ("Reboot with dGPU"), until "Reboot without dGPU".
+optimize_boot_without_dgpu() {
+    if [ ! -w /var/lib/dgpu/mode ]; then
+        _log_warn "No /var/lib/dgpu/mode (the desktop's installer makes it): keeping the dGPU."
+        return 0
+    fi
+    echo off >/var/lib/dgpu/mode
+    _log_ok "The next boots go without the dGPU."
+}
+
 # Holds the tty1 autologin (set up by the desktop) until both DRM symlinks exist:
 # Hyprland starts right after login and would otherwise miss a GPU.
 configure_gpu_wait() {
@@ -738,6 +740,8 @@ configure_gpu_wait() {
     sudo tee /usr/local/bin/wait-for-gpus >/dev/null <<'EOF'
 #!/bin/sh
 links=$(grep -o 'dri/[a-z-]*' /etc/udev/rules.d/99-hyprland-gpus.rules 2>/dev/null | sort -u)
+# A boot without the dGPU (the desktop's dgpu-mode.service) has only the iGPU to wait for.
+[ -e /run/modprobe.d/dgpu-off.conf ] && links=$(echo "$links" | grep -v nvidia)
 i=0
 while [ "$i" -lt 200 ]; do
     ready=1

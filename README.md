@@ -15,10 +15,9 @@ It is the private part of my setup. The public parts are
 ## Features
 
 - **Installations:** enables `multilib`, clones `.files` and `desktop` and runs
-  their installers, links `home/` into `~`, then installs `packages.sh` and
-  SKlauncher from `home/.local/share/pkgbuilds` (no AUR).
-- **Fixes:** Kernel parameters for Lenovo Legion touchpads, Lofree Fn keys (and
-  its volume knob, through keyd), and NVIDIA/AMD hybrid brightness.
+  their installers, links `home/` into `~`, then installs `packages.sh`,
+  SKlauncher and kanata from `home/.local/share/pkgbuilds` (no AUR).
+- **Fixes:** Kernel parameters for Lenovo Legion touchpads, Lofree Fn keys, and NVIDIA/AMD hybrid brightness.
 - **Optimizations:** Kernel boot parameters, a slim `mkinitcpio` (with `vfat`
   inside, so `/boot` does not stall the boot, `nvme` loaded by name, and its
   udevd stopped without waiting), the UKI
@@ -26,9 +25,11 @@ It is the private part of my setup. The public parts are
   reboots through kexec (no firmware start in between),
   the tty font set by the kernel
   instead of `systemd-vconsole-setup`, a copy of `amdgpu` without its ftrace
-  records (the kernel spends ~4 s of every boot checking them), and NVIDIA RTD3
-  for power saving.
-- **Configurations:** Daemons, UFW firewall, UKI presets, keyd,
+  records (the kernel spends ~4 s of every boot checking them), NVIDIA RTD3
+  for power saving, and boots without the dGPU (the login ~1.3 s sooner; the
+  desktop's power menu reboots with it for the dock and back).
+- **Configurations:** Daemons, UFW firewall, UKI presets, kanata
+  (`.files`' `kanata.kbd`, shared with the Mac),
   a faster shutdown, a wait for both GPUs before the tty1 autologin, and the
   user manager started with the system (linger), before the network is up.
 

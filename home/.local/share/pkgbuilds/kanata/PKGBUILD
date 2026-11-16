@@ -1,0 +1,23 @@
+# kanata from its makers' releases, the build that cannot run commands from its config.
+# 1.13.0rc1 (its v1.13.0-prerelease-1): 1.12.0 picks up a replugged keyboard only once (#2129).
+
+pkgname=kanata
+pkgver=1.13.0rc1
+pkgrel=1
+pkgdesc="Keyboard remapper with tap-hold keys and layers"
+arch=('x86_64')
+url="https://github.com/jtroo/kanata"
+license=('LGPL-3.0-only')
+options=('!strip' '!debug')
+_tag="v${pkgver/rc/-prerelease-}"
+source=("kanata-$pkgver.zip::$url/releases/download/$_tag/linux-binaries-x64.zip")
+sha256sums=('40fea30cccbaa3fe8698eec80112b297602d55e49fee29a41480742f07d1cdd6')
+
+# The newest release (sysupdate asks).
+_latest() {
+    curl -fsSI --max-time 15 -o /dev/null -w '%{redirect_url}' "$url/releases/latest" | sed -nE 's#.*/tag/v?##p'
+}
+
+package() {
+    install -Dm755 kanata_linux_x64 "$pkgdir/usr/bin/kanata"
+}

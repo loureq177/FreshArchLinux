@@ -10,7 +10,6 @@ SYSTEM_PKGS=(
     efibootmgr
     iwd
     kexec-tools
-    keyd
     libcamera
     networkmanager-openvpn
     openvpn
