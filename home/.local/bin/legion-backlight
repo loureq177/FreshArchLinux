@@ -26,8 +26,26 @@ if [[ "${1:-}" == --once ]]; then
     exit 0
 fi
 
-vendor="$(grep -lx 0x10de /sys/bus/pci/devices/*/vendor 2>/dev/null | head -1)"
-gpu_file="${vendor%vendor}power/runtime_status"
+# What loses its power: the dGPU, or with the card off the bus (dgpu off) the empty bridge
+# it hung from, which still sleeps again after anything reads the bus (btop, lspci).
+power_dir=
+for dev in /sys/bus/pci/devices/*; do
+    [[ "$(<"$dev/vendor")" == 0x10de ]] && power_dir=$dev/power && break
+done
+# The bridge is awake for only ~0.2 s: polled often, and its active time shows a wake missed.
+idle_wait=2
+if [[ -z "$power_dir" ]]; then
+    for port in /sys/bus/pci/devices/*; do
+        [[ -r "$port/secondary_bus_number" ]] || continue
+        printf -v bus '%02x' "$(<"$port/secondary_bus_number")"
+        name=${port##*/}
+        compgen -G "/sys/bus/pci/devices/${name%%:*}:$bus:*" >/dev/null && continue
+        power_dir=$port/power idle_wait=0.1
+        break
+    done
+fi
+gpu_file=${power_dir:-/nonexistent}/runtime_status
+active_file=${power_dir:-/nonexistent}/runtime_active_time
 profile_file=/sys/firmware/acpi/platform_profile
 
 # The panel dims once more after login.
@@ -38,14 +56,16 @@ restore
 exec 3<> <(:)
 
 read -r gpu <"$gpu_file" || gpu=
+read -r active <"$active_file" || active=
 read -r profile <"$profile_file" || profile=
 while :; do
-    gpu_was=$gpu profile_was=$profile
+    gpu_was=$gpu active_was=$active profile_was=$profile
     read -r gpu <"$gpu_file" || gpu=
+    read -r active <"$active_file" || active=
     read -r profile <"$profile_file" || profile=
     # It dims as the power is cut: within a frame or two of that, then again in case the
     # firmware was not done yet.
-    if [[ "$gpu" == suspended && "$gpu_was" != suspended ]]; then
+    if [[ "$gpu" == suspended && ( "$gpu_was" != suspended || "$active" != "$active_was" ) ]]; then
         nudge
         sleep 0.15
         nudge
@@ -56,9 +76,10 @@ while :; do
         sleep 12
         restore
     fi
-    # Only a GPU that is awake can lose its power, and it is rarely awake.
-    if [[ "$gpu" == suspended ]]; then
-        sleep 2
+    # Only a GPU that is awake can lose its power, and it is rarely awake; with nothing to
+    # watch, only the profile.
+    if [[ "$gpu" == suspended || -z "$power_dir" ]]; then
+        read -r -t "$idle_wait" -u 3 _ || true
     else
         read -r -t 0.02 -u 3 _ || true
     fi
