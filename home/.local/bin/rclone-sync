@@ -23,6 +23,8 @@ if [[ -z "$(find "$source_root" -mindepth 1 -maxdepth 1 ! -name '.*' -print -qui
     exit 1
 fi
 
+# --one-file-system below: never into mounts in ~ (cloud-drive's ~/Cloud would copy the cloud
+# into itself).
 excludes=(
     "--exclude=.*/**"
     "--exclude=.*"
@@ -53,6 +55,7 @@ rclone sync \
     --checkers 8 \
     --buffer-size 32M \
     --fast-list \
+    --one-file-system \
     --track-renames \
     --drive-use-trash=true \
     --verbose || rc=$?

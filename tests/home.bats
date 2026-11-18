@@ -19,8 +19,8 @@ wifi() {
 }
 BED_MARKER() { echo "$HOME/.local/state/bedtime/wifi-off"; }
 
-@test "bedtime 21:50: warns and leaves wifi alone" {
-    fake_time 21 50
+@test "bedtime 21:20: warns and leaves wifi alone" {
+    fake_time 21 20
     wifi enabled
     sut "$BIN/bedtime"
     assert_status 0
@@ -28,8 +28,8 @@ BED_MARKER() { echo "$HOME/.local/state/bedtime/wifi-off"; }
     refute_call_like "nmcli radio wifi off"
 }
 
-@test "bedtime 22:00: turns wifi off, announces it and remembers doing so" {
-    fake_time 22 00
+@test "bedtime 21:30: turns wifi off, announces it and remembers doing so" {
+    fake_time 21 30
     wifi enabled
     sut "$BIN/bedtime"
     assert_status 0
@@ -47,7 +47,7 @@ BED_MARKER() { echo "$HOME/.local/state/bedtime/wifi-off"; }
     refute_call_like "notify-send"
 }
 
-@test "bedtime 22:00: does not claim a wifi the user had already switched off" {
+@test "bedtime 21:30: does not claim a wifi the user had already switched off" {
     fake_time 22 00
     wifi disabled
     sut "$BIN/bedtime"
@@ -86,6 +86,40 @@ BED_MARKER() { echo "$HOME/.local/state/bedtime/wifi-off"; }
     [[ ! -e "$(BED_MARKER)" ]]
 }
 
+@test "bedtime set 22:00: moves the curfew and the timer's times" {
+    stub systemctl
+    sut "$BIN/bedtime" set 22:00
+    assert_status 0
+    [[ "$(cat "$HOME/.config/bedtime.conf")" == "BEDTIME=22:00" ]]
+    grep -qx 'OnCalendar=\*-\*-\* 21:45:00' "$HOME/.config/systemd/user/bedtime.timer.d/time.conf"
+    grep -qx 'OnCalendar=\*-\*-\* 07:00:00' "$HOME/.config/systemd/user/bedtime.timer.d/time.conf"
+    assert_call "systemctl --user restart bedtime.timer"
+
+    fake_time 21 40
+    wifi enabled
+    sut "$BIN/bedtime"
+    refute_call_like "nmcli radio wifi off"
+    sut "$BIN/bedtime" get
+    [[ "$output" == $'22:00\n21:30' ]]
+}
+
+@test "bedtime set: the default again leaves no override" {
+    stub systemctl
+    sut "$BIN/bedtime" set 22:00
+    sut "$BIN/bedtime" set
+    assert_status 0
+    [[ ! -e "$HOME/.config/bedtime.conf" && ! -e "$HOME/.config/systemd/user/bedtime.timer.d" ]]
+}
+
+@test "bedtime set: refuses what is not a time" {
+    stub systemctl
+    sut "$BIN/bedtime" set 25:00
+    assert_status 2
+    sut "$BIN/bedtime" set 0:10
+    assert_status 2
+    [[ ! -e "$HOME/.config/bedtime.conf" ]]
+}
+
 # --- rclone-sync -------------------------------------------------------------
 
 @test "rclone-sync: syncs the home dir to the default remote, skipping dotfiles and build dirs" {
@@ -94,6 +128,7 @@ BED_MARKER() { echo "$HOME/.local/state/bedtime/wifi-off"; }
     assert_status 0
     assert_call_like "rclone sync $HOME google-drive-backup:mlorenc-backup --exclude=.*/** --exclude=.* --exclude=node_modules/**"
     assert_call_like "--drive-use-trash=true"
+    assert_call_like "--one-file-system"
     refute_call_like "--progress"
     refute_call_like "notify-send"
 }
