@@ -1,10 +1,11 @@
 [Unit]
 Description=Timer for bedtime routine
 
+# The times for the default bedtime, 21:30; `bedtime set` overrides them in bedtime.timer.d.
 [Timer]
-OnCalendar=*-*-* 21:45:00
-OnCalendar=*-*-* 21:55:00
-OnCalendar=*-*-* 22:00:00
+OnCalendar=*-*-* 21:15:00
+OnCalendar=*-*-* 21:25:00
+OnCalendar=*-*-* 21:30:00
 OnCalendar=*-*-* 07:00:00
 Persistent=true
 

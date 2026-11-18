@@ -1,5 +1,48 @@
 #!/usr/bin/env bash
+# Wi-Fi off at bedtime, back at 07:00. `bedtime get` prints the time and the default,
+# `bedtime set HH:MM` changes it (the shell's settings), `bedtime set` goes back to the default.
 set -euo pipefail
+
+DEFAULT="21:30"
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/bedtime.conf"
+DROPIN="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/bedtime.timer.d/time.conf"
+MARKER="${XDG_STATE_HOME:-$HOME/.local/state}/bedtime/wifi-off"
+TIME_RE='^([01]?[0-9]|2[0-3]):[0-5][0-9]$'
+
+BEDTIME="$DEFAULT"
+[[ -f "$CONF" ]] && source "$CONF"
+[[ "$BEDTIME" =~ $TIME_RE ]] || BEDTIME="$DEFAULT"
+
+minutes() { echo $((10#${1%%:*} * 60 + 10#${1##*:})); }
+hhmm() { printf '%02d:%02d' $(($1 / 60)) $(($1 % 60)); }
+
+case "${1:-}" in
+get)
+    printf '%s\n%s\n' "$BEDTIME" "$DEFAULT"
+    exit 0
+    ;;
+set)
+    at="${2:-$DEFAULT}"
+    [[ "$at" =~ $TIME_RE ]] || { echo "bedtime: not a time: $at" >&2; exit 2; }
+    t=$(minutes "$at")
+    # Not before 00:15: the warnings would fall on the day before.
+    [[ "$t" -ge 15 ]] || { echo "bedtime: too early: $at" >&2; exit 2; }
+    if [[ "$t" -eq "$(minutes "$DEFAULT")" ]]; then
+        rm -f "$CONF" "$DROPIN"
+        rmdir "$(dirname "$DROPIN")" 2>/dev/null || true
+    else
+        mkdir -p "$(dirname "$CONF")" "$(dirname "$DROPIN")"
+        echo "BEDTIME=$(hhmm "$t")" >"$CONF"
+        printf '[Timer]\nOnCalendar=\n' >"$DROPIN"
+        for m in $((t - 15)) $((t - 5)) "$t" $((7 * 60)); do
+            echo "OnCalendar=*-*-* $(hhmm "$m"):00" >>"$DROPIN"
+        done
+    fi
+    systemctl --user daemon-reload 2>/dev/null || true
+    systemctl --user restart bedtime.timer 2>/dev/null || true
+    exit 0
+    ;;
+esac
 
 notify_bed() {
     notify-send \
@@ -8,8 +51,6 @@ notify_bed() {
         -i "weather-clear-night" \
         "$1" 2>/dev/null || true
 }
-
-MARKER="${XDG_STATE_HOME:-$HOME/.local/state}/bedtime/wifi-off"
 
 set_wifi() {
     local current
@@ -32,17 +73,15 @@ set_wifi() {
     esac
 }
 
-hour=$((10#$(date +%H)))
-minute=$((10#$(date +%M)))
-now=$((hour * 60 + minute))
-curfew=$((22 * 60))
+now=$(minutes "$(date +%H):$(date +%M)")
+curfew=$(minutes "$BEDTIME")
 
 if [ "$now" -ge "$curfew" ]; then
     if [ "$now" -lt $((curfew + 15)) ]; then
         notify_bed "WiFi has been turned off."
     fi
     set_wifi "off"
-elif [ "$hour" -eq 21 ] && [ "$minute" -ge 45 ]; then
+elif [ "$now" -ge $((curfew - 15)) ]; then
     notify_bed "WiFi will turn off in $((curfew - now)) minutes."
     set_wifi "on"
 else
