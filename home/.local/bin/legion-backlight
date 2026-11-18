@@ -47,6 +47,9 @@ fi
 gpu_file=${power_dir:-/nonexistent}/runtime_status
 active_file=${power_dir:-/nonexistent}/runtime_active_time
 profile_file=/sys/firmware/acpi/platform_profile
+# Pulling the charger dims it too (2026-11-18, with the dGPU awake throughout).
+ac_file=$(compgen -G "/sys/class/power_supply/A*/online" | head -n 1)
+ac_file=${ac_file:-/nonexistent}
 
 # The panel dims once more after login.
 sleep 4
@@ -58,11 +61,13 @@ exec 3<> <(:)
 read -r gpu <"$gpu_file" || gpu=
 read -r active <"$active_file" || active=
 read -r profile <"$profile_file" || profile=
+read -r ac <"$ac_file" || ac=
 while :; do
-    gpu_was=$gpu active_was=$active profile_was=$profile
+    gpu_was=$gpu active_was=$active profile_was=$profile ac_was=$ac
     read -r gpu <"$gpu_file" || gpu=
     read -r active <"$active_file" || active=
     read -r profile <"$profile_file" || profile=
+    read -r ac <"$ac_file" || ac=
     # It dims as the power is cut: within a frame or two of that, then again in case the
     # firmware was not done yet.
     if [[ "$gpu" == suspended && ( "$gpu_was" != suspended || "$active" != "$active_was" ) ]]; then
@@ -70,6 +75,16 @@ while :; do
         sleep 0.15
         nudge
         sleep 0.35
+        nudge
+    # When it dims after the charger goes is not known yet: soon, and again later.
+    elif [[ "$ac" != "$ac_was" ]]; then
+        echo "power source changed (online=$ac): restoring"
+        nudge
+        sleep 0.5
+        nudge
+        sleep 1.5
+        nudge
+        sleep 3
         nudge
     # A new profile dims it a few seconds later.
     elif [[ "$profile" != "$profile_was" ]]; then
